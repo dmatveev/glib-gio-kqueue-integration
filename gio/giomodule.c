@@ -473,6 +473,8 @@ extern GType _g_fen_directory_monitor_get_type (void);
 extern GType _g_fen_file_monitor_get_type (void);
 extern GType _g_inotify_directory_monitor_get_type (void);
 extern GType _g_inotify_file_monitor_get_type (void);
+extern GType _g_kqueue_directory_monitor_get_type (void);
+extern GType _g_kqueue_file_monitor_get_type (void);
 extern GType _g_unix_volume_monitor_get_type (void);
 extern GType _g_local_vfs_get_type (void);
 
@@ -603,6 +605,10 @@ _g_io_modules_ensure_loaded (void)
 #if defined(HAVE_SYS_INOTIFY_H) || defined(HAVE_LINUX_INOTIFY_H)
       _g_inotify_directory_monitor_get_type ();
       _g_inotify_file_monitor_get_type ();
+#endif
+#if defined(HAVE_KQUEUE)
+      _g_kqueue_directory_monitor_get_type ();
+      _g_kqueue_file_monitor_get_type ();
 #endif
 #if defined(HAVE_FEN)
       _g_fen_directory_monitor_get_type ();
