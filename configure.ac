@@ -1615,6 +1615,18 @@ AC_CHECK_HEADERS([sys/inotify.h],
 
 AM_CONDITIONAL(HAVE_INOTIFY, [test "$inotify_support" = "yes"])
 
+dnl ****************************
+dnl ** Check for kqueue (GIO) **
+dnl ****************************
+kqueue_support=no
+AC_CHECK_HEADERS([sys/event.h],
+[
+	kqueue_support=yes
+	AC_CHECK_FUNCS(kqueue kevent)
+])
+
+AM_CONDITIONAL(HAVE_KQUEUE, [test "$kqueue_support" = "yes"])
+
 dnl *********************************
 dnl ** Check for Solaris FEN (GIO) **
 dnl *********************************
@@ -3726,6 +3738,7 @@ gthread/tests/Makefile
 gio/Makefile
 gio/xdgmime/Makefile
 gio/inotify/Makefile
+gio/kqueue/Makefile
 gio/libasyncns/Makefile
 gio/fen/Makefile
 gio/fam/Makefile
