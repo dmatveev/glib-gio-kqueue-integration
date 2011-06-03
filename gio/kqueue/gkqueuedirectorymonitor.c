@@ -1,7 +1,9 @@
 #include "config.h"
 
 #include "gkqueuedirectorymonitor.h"
+#include "kqueue-helper.h"
 #include <gio/giomodule.h>
+#include <assert.h>
 
 struct _GKqueueDirectoryMonitor
 {
@@ -35,6 +37,7 @@ g_kqueue_directory_monitor_constructor (GType                 type,
   GKqueueDirectoryMonitorClass *klass;
   GObjectClass *parent_class;
   GKqueueDirectoryMonitor *kqueue_monitor;
+  gboolean ret_kh_startup;
 
   klass = G_KQUEUE_DIRECTORY_MONITOR_CLASS (g_type_class_peek (G_TYPE_KQUEUE_DIRECTORY_MONITOR));
   parent_class = G_OBJECT_CLASS (g_type_class_peek_parent (klass));
@@ -43,6 +46,9 @@ g_kqueue_directory_monitor_constructor (GType                 type,
                                    construct_properties);
 
   kqueue_monitor = G_KQUEUE_DIRECTORY_MONITOR (obj);
+
+  ret_kh_startup = _kh_startup();
+  assert (ret_kh_startup);
 
   return obj;
 }
