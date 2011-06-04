@@ -8,114 +8,22 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <stdlib.h> /* TODO: {c,re}alloc. Probably should use smt from Glib instead? */
 #include "kqueue-helper.h"
+#include "kqueue-thread.h"
 
 static gboolean kh_debug_enabled = TRUE;
 #define KH_W if (kh_debug_enabled) g_warning
 
 G_GNUC_INTERNAL G_LOCK_DEFINE (kqueue_lock);
 
-static GSList *g_pick_up_fds = NULL;
-G_GNUC_INTERNAL G_LOCK_DEFINE (pick_up_lock);
-
 static GHashTable *g_sub_hash = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (hash_lock);
 
-const uint32_t KQUEUE_VNODE_FLAGS =
-  NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | NOTE_LINK |
-  NOTE_RENAME | NOTE_REVOKE;
-
 /* TODO: Too many locks. Isn't it? */
 
-static int g_kqueue = -1;
+int g_kqueue = -1;
 static int g_sockpair[] = {-1, -1};
 static pthread_t g_kqueue_thread;
-
-
-struct kqueue_notification {
-  int fd;
-  uint32_t flags;
-};
-
-
-void*
-g_kqueue_thread_func (void *arg)
-{
-  int fd;
-  struct kevent *waiting;
-  size_t kq_size = 1;
-
-  /* TODO: A better memory allocation strategy */
-  waiting = calloc (1, sizeof (struct kevent));
-
-  fd = *(int *) arg;
-
-  if (g_kqueue == -1)
-  {
-    KH_W ("fatal: kqueue is not initialized!\n");
-    return NULL;
-  }
-
-  EV_SET (&waiting[0],
-          fd,
-          EVFILT_READ,
-          EV_ADD | EV_ENABLE | EV_ONESHOT,
-          NOTE_LOWAT,
-          1,
-          0);
-
-  for (;;) {
-    struct kevent received;
-    int ret = kevent (g_kqueue, waiting, kq_size, &received, 1, NULL);
-
-    if (ret == -1) {
-      KH_W ("kevent failed\n");
-      continue;
-    }
-
-    if (received.ident == fd)
-      {
-        char c;
-        read (fd, &c, 1);
-        if (c == 'A')
-          {
-            G_LOCK (pick_up_lock);
-            if (g_pick_up_fds)
-              {
-                GSList *head = g_pick_up_fds;
-                guint count = g_slist_length (g_pick_up_fds);
-                waiting = realloc (waiting, count * sizeof (struct kevent));
-                while (head)
-                  {
-                    struct kevent *pevent = &waiting[kq_size++];
-                    EV_SET (pevent,
-                            GPOINTER_TO_INT (head->data),
-                            EVFILT_VNODE,
-                            EV_ADD | EV_ENABLE | EV_ONESHOT,
-                            KQUEUE_VNODE_FLAGS,
-                            0,
-                            0);
-                    head = head->next;
-                  }
-                g_slist_free (g_pick_up_fds);
-                g_pick_up_fds = NULL;
-              }
-            G_UNLOCK (pick_up_lock);
-          }
-      }
-    else if (!(received.fflags & EV_ERROR))
-      {
-        struct kqueue_notification kn;
-        kn.fd = received.ident;
-        kn.flags = received.fflags;
-
-        write (fd, &kn, sizeof (struct kqueue_notification));
-      }
-  }
-
-  return NULL;
-}
 
 
 static GFileMonitorEvent
@@ -132,7 +40,6 @@ convert_kqueue_events_to_gio (uint32_t flags)
     {NOTE_RENAME, G_FILE_MONITOR_EVENT_MOVED}
   };
   /* TODO: The following notifications should be emulated:
-   *   G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT
    *   G_FILE_MONITOR_EVENT_CREATED
    *   G_FILE_MONITOR_EVENT_PRE_UNMOUNT
    *   G_FILE_MONITOR_EVENT_UNMOUNTED */
@@ -179,8 +86,7 @@ process_kqueue_notifications (GIOChannel  *gioc,
 
   child = g_file_new_for_path (sub->filename);
   other = NULL; /* TODO: Do something. */
-
-  mask = convert_kqueue_events_to_gio (n.flags);
+  mask  = convert_kqueue_events_to_gio (n.flags);
 
   g_file_monitor_emit_event (monitor, child, other, mask);
   return TRUE;
@@ -231,7 +137,7 @@ _kh_startup (void)
 
   result = (0 == pthread_create (&g_kqueue_thread,
                                  NULL,
-                                 g_kqueue_thread_func,
+                                 _kqueue_thread_func,
                                  &g_sockpair[1]));
   if (!result)
     {
@@ -277,10 +183,8 @@ _kh_add_sub (kqueue_sub *sub)
   g_hash_table_insert (g_sub_hash, GINT_TO_POINTER(sub->fd), sub);
   G_UNLOCK (hash_lock);
 
-  G_LOCK (pick_up_lock);
-  g_pick_up_fds = g_slist_prepend (g_pick_up_fds, GINT_TO_POINTER (sub->fd));
-  G_UNLOCK (pick_up_lock);
-
+  _kqueue_thread_push_fd (sub->fd);
+  
   /* Bump the kqueue thread. It will pick up a new sub entry */
   write(g_sockpair[0], "A", 1);
   return TRUE;
