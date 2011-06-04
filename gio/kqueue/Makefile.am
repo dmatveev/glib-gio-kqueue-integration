@@ -9,6 +9,12 @@ libkqueue_la_SOURCES = 		\
 	gkqueuefilemonitor.h		\
 	gkqueuedirectorymonitor.c	\
 	gkqueuedirectorymonitor.h	\
+	kqueue-helper.c \
+	kqueue-helper.h \
+	kqueue-thread.c \
+	kqueue-thread.h \
+	kqueue-sub.c \
+	kqueue-sub.h \
 	$(NULL)
 
 libkqueue_la_CFLAGS = \
