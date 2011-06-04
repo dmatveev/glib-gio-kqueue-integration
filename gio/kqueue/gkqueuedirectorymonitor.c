@@ -116,6 +116,8 @@ g_kqueue_directory_monitor_cancel (GFileMonitor *monitor)
 {
   GKqueueDirectoryMonitor *kqueue_monitor = G_KQUEUE_DIRECTORY_MONITOR (monitor);
 
+  /* TODO: Implementation */
+
   if (G_FILE_MONITOR_CLASS (g_kqueue_directory_monitor_parent_class)->cancel)
     (*G_FILE_MONITOR_CLASS (g_kqueue_directory_monitor_parent_class)->cancel) (monitor);
 }

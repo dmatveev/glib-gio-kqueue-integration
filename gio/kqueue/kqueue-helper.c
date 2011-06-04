@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <stdlib.h> /* TODO: {c,re}alloc. Probably should use smt from Glib instead? */
 #include "kqueue-helper.h"
 
 static gboolean kh_debug_enabled = TRUE;
@@ -15,19 +16,38 @@ static gboolean kh_debug_enabled = TRUE;
 
 G_GNUC_INTERNAL G_LOCK_DEFINE (kqueue_lock);
 
-static GList *g_pick_up_fds = NULL;
+static GSList *g_pick_up_fds = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (pick_up_lock);
+
+static GHashTable *g_sub_hash = NULL;
+G_GNUC_INTERNAL G_LOCK_DEFINE (hash_lock);
+
+const uint32_t KQUEUE_VNODE_FLAGS =
+  NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | NOTE_LINK |
+  NOTE_RENAME | NOTE_REVOKE;
+
+/* TODO: Too many locks. Isn't it? */
 
 static int g_kqueue = -1;
 static int g_sockpair[] = {-1, -1};
 static pthread_t g_kqueue_thread;
 
 
+struct kqueue_notification {
+  int fd;
+  uint32_t flags;
+};
+
+
 void*
 g_kqueue_thread_func (void *arg)
 {
   int fd;
-  struct kevent waiting;
+  struct kevent *waiting;
+  size_t kq_size = 1;
+
+  /* TODO: A better memory allocation strategy */
+  waiting = calloc (1, sizeof (struct kevent));
 
   fd = *(int *) arg;
 
@@ -37,7 +57,7 @@ g_kqueue_thread_func (void *arg)
     return NULL;
   }
 
-  EV_SET (&waiting,
+  EV_SET (&waiting[0],
           fd,
           EVFILT_READ,
           EV_ADD | EV_ENABLE | EV_ONESHOT,
@@ -46,36 +66,88 @@ g_kqueue_thread_func (void *arg)
           0);
 
   for (;;) {
-    int ret;
-    struct kevent got;
-
-    ret = kevent (g_kqueue, &waiting, 1, &got, 1, NULL);
+    struct kevent received;
+    int ret = kevent (g_kqueue, waiting, kq_size, &received, 1, NULL);
 
     if (ret == -1) {
       KH_W ("kevent failed\n");
       continue;
     }
 
-    { char c;
-      read (fd, &c, 1);
-      if (c == 'A') {
-        G_LOCK (pick_up_lock);
-        if (g_pick_up_fds)
+    if (received.ident == fd)
+      {
+        char c;
+        read (fd, &c, 1);
+        if (c == 'A')
           {
-            GList *head = g_pick_up_fds;
-            while (head)
+            G_LOCK (pick_up_lock);
+            if (g_pick_up_fds)
               {
-                head = head->next;
+                GSList *head = g_pick_up_fds;
+                guint count = g_slist_length (g_pick_up_fds);
+                waiting = realloc (waiting, count * sizeof (struct kevent));
+                while (head)
+                  {
+                    struct kevent *pevent = &waiting[kq_size++];
+                    EV_SET (pevent,
+                            GPOINTER_TO_INT (head->data),
+                            EVFILT_VNODE,
+                            EV_ADD | EV_ENABLE | EV_ONESHOT,
+                            KQUEUE_VNODE_FLAGS,
+                            0,
+                            0);
+                    head = head->next;
+                  }
+                g_slist_free (g_pick_up_fds);
+                g_pick_up_fds = NULL;
               }
-            g_list_free (g_pick_up_fds);
-            g_pick_up_fds = NULL;
+            G_UNLOCK (pick_up_lock);
           }
-        G_UNLOCK (pick_up_lock);
       }
-    }
+    else if (!(received.fflags & EV_ERROR))
+      {
+        struct kqueue_notification kn;
+        kn.fd = received.ident;
+        kn.flags = received.fflags;
+
+        write (fd, &kn, sizeof (struct kqueue_notification));
+      }
   }
 
   return NULL;
+}
+
+
+static GFileMonitorEvent
+convert_kqueue_events_to_gio (uint32_t flags)
+{
+  static struct {
+    uint32_t kqueue_code;
+    GFileMonitorEvent gio_code;
+  } translations[] = {
+    {NOTE_DELETE, G_FILE_MONITOR_EVENT_DELETED},
+    {NOTE_ATTRIB, G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED},
+    {NOTE_WRITE,  G_FILE_MONITOR_EVENT_CHANGED},
+    {NOTE_EXTEND, G_FILE_MONITOR_EVENT_CHANGED},
+    {NOTE_RENAME, G_FILE_MONITOR_EVENT_MOVED}
+  };
+  /* TODO: The following notifications should be emulated:
+   *   G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT
+   *   G_FILE_MONITOR_EVENT_CREATED
+   *   G_FILE_MONITOR_EVENT_PRE_UNMOUNT
+   *   G_FILE_MONITOR_EVENT_UNMOUNTED */
+  
+  GFileMonitorEvent result = 0;
+  int i;
+
+  for (i = 0; i < sizeof (translations) / sizeof (translations[0]); i++)
+    {
+      if (flags & translations[i].kqueue_code)
+      {
+        result |= translations[i].gio_code;
+      }
+    }
+  return result;
 }
 
 
@@ -84,7 +156,34 @@ process_kqueue_notifications (GIOChannel  *gioc,
                               GIOCondition cond,
                               gpointer     data)
 {
-  return FALSE;
+  struct kqueue_notification n;
+  kqueue_sub *sub = NULL;
+  GFileMonitor *monitor = NULL;
+  GFile *child = NULL;
+  GFile *other = NULL;
+  GFileMonitorEvent mask = 0;
+  
+  g_assert (g_sockpair[0] != NULL);
+  read (g_sockpair[0], &n, sizeof (struct kqueue_notification));
+
+  if (n.flags & (NOTE_LINK | NOTE_REVOKE))
+    {
+      return TRUE; /* TODO: GIO does not know about it */
+    }
+
+  sub = (kqueue_sub *) g_hash_table_lookup (g_sub_hash, GINT_TO_POINTER (n.fd));
+  g_assert (sub != NULL);
+
+  monitor = G_FILE_MONITOR(sub->user_data);
+  g_assert (monitor != NULL);
+
+  child = g_file_new_for_path (sub->filename);
+  other = NULL; /* TODO: Do something. */
+
+  mask = convert_kqueue_events_to_gio (n.flags);
+
+  g_file_monitor_emit_event (monitor, child, other, mask);
+  return TRUE;
 }
 
 
@@ -96,7 +195,6 @@ _kh_startup (void)
   static gboolean result = FALSE;
 
   GIOChannel *channel;
-  GSource *source;
 
   /* TODO: This logic has been taken from the original inotify plugin.
    * I assume that it would be faster to check the `initialized' flag
@@ -144,11 +242,9 @@ _kh_startup (void)
 
   /* TODO: Non-blocking options for sockets? */
   channel = g_io_channel_unix_new (g_sockpair[0]);
-  source = g_io_create_watch (channel, G_IO_IN);
-  g_source_set_callback (source,
-                         (GSourceFunc) process_kqueue_notifications,
-                         NULL,
-                         NULL);
+  g_io_add_watch (channel, G_IO_IN, process_kqueue_notifications, NULL);
+
+  g_sub_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
 
   KH_W ("started gio kqueue backend\n");
   initialized = TRUE;
@@ -177,8 +273,12 @@ _kh_add_sub (kqueue_sub *sub)
       return FALSE;
     }
 
+  G_LOCK (hash_lock);
+  g_hash_table_insert (g_sub_hash, GINT_TO_POINTER(sub->fd), sub);
+  G_UNLOCK (hash_lock);
+
   G_LOCK (pick_up_lock);
-  g_pick_up_fds = g_list_prepend (g_pick_up_fds, GINT_TO_POINTER (sub->fd));
+  g_pick_up_fds = g_slist_prepend (g_pick_up_fds, GINT_TO_POINTER (sub->fd));
   G_UNLOCK (pick_up_lock);
 
   /* Bump the kqueue thread. It will pick up a new sub entry */
