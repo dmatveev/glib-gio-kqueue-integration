@@ -118,8 +118,14 @@ static gboolean
 g_kqueue_file_monitor_cancel (GFileMonitor *monitor)
 {
   GKqueueFileMonitor *kqueue_monitor = G_KQUEUE_FILE_MONITOR (monitor);
+  kqueue_sub *sub = kqueue_monitor->sub;
 
-  /* TODO: Implementation */
+  if (sub)
+    {
+      _kh_cancel_sub (sub);
+      _kh_sub_free (sub);
+      kqueue_monitor->sub = NULL;
+    }
 
   if (G_FILE_MONITOR_CLASS (g_kqueue_file_monitor_parent_class)->cancel)
     (*G_FILE_MONITOR_CLASS (g_kqueue_file_monitor_parent_class)->cancel) (monitor);
