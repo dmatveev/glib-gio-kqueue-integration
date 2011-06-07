@@ -73,11 +73,6 @@ process_kqueue_notifications (GIOChannel  *gioc,
   g_assert (g_sockpair[0] != NULL);
   read (g_sockpair[0], &n, sizeof (struct kqueue_notification));
 
-  if (n.flags & (NOTE_LINK | NOTE_REVOKE))
-    {
-      return TRUE; /* TODO: GIO does not know about it */
-    }
-
   sub = (kqueue_sub *) g_hash_table_lookup (g_sub_hash, GINT_TO_POINTER (n.fd));
   g_assert (sub != NULL);
 
@@ -86,6 +81,8 @@ process_kqueue_notifications (GIOChannel  *gioc,
 
   child = g_file_new_for_path (sub->filename);
   other = NULL; /* TODO: Do something. */
+
+  /* TODO: Remove subscription on NOTE_DELETE event? */
   mask  = convert_kqueue_events_to_gio (n.flags);
 
   g_file_monitor_emit_event (monitor, child, other, mask);
