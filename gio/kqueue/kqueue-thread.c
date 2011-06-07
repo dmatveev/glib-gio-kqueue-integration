@@ -18,9 +18,13 @@ G_GNUC_INTERNAL G_LOCK_DEFINE (pick_up_lock);
 static GSList *g_remove_fds = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (remove_lock);
 
+
+/* GIO does not have analogues for NOTE_LINK and(?) NOTE_REVOKE, so
+ * we do not ask kqueue() to watch for these events for now. */
+
 const uint32_t KQUEUE_VNODE_FLAGS =
-  NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | NOTE_LINK |
-  NOTE_RENAME | NOTE_REVOKE;
+  NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | NOTE_RENAME;
+
 
 /* TODO: Probably it would be better to pass it as a thread param? */
 extern int g_kqueue;
