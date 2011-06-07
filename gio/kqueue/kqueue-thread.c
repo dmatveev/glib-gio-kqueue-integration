@@ -15,6 +15,9 @@ static gboolean kt_debug_enabled = TRUE;
 static GSList *g_pick_up_fds = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (pick_up_lock);
 
+static GSList *g_remove_fds = NULL;
+G_GNUC_INTERNAL G_LOCK_DEFINE (remove_lock);
+
 const uint32_t KQUEUE_VNODE_FLAGS =
   NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | NOTE_LINK |
   NOTE_RENAME | NOTE_REVOKE;
@@ -24,7 +27,7 @@ extern int g_kqueue;
 
 
 static void
-_kqueue_thread_update_fds (struct kevent **events, size_t *kq_size)
+_kqueue_thread_collect_fds (struct kevent **events, size_t *kq_size)
 {
   g_assert (events != NULL);
   g_assert (*events != NULL);
@@ -35,7 +38,7 @@ _kqueue_thread_update_fds (struct kevent **events, size_t *kq_size)
     {
       GSList *head = g_pick_up_fds;
       guint count = g_slist_length (g_pick_up_fds);
-      *events = realloc (*events, count * sizeof (struct kevent));
+      *events = realloc (*events, (*kq_size + count) * sizeof (struct kevent));
       while (head)
       {
         struct kevent *pevent = &(*events)[(*kq_size)++];
@@ -52,6 +55,60 @@ _kqueue_thread_update_fds (struct kevent **events, size_t *kq_size)
       g_pick_up_fds = NULL;
     }
   G_UNLOCK (pick_up_lock);
+}
+
+
+static void
+_kqueue_thread_cleanup_fds (struct kevent **events, size_t *kq_size)
+{
+  g_assert (events != NULL);
+  g_assert (*events != NULL);
+  g_assert (kq_size != NULL);
+
+  G_LOCK (remove_lock);
+  if (g_remove_fds)
+    {
+      /* kevent(2) expects a continuous piece of memory passed as
+       * `eventlist' argument. So, I do not see any other solution
+       * than just to reallocate and filter out the existing kevents.
+       * Yes, it is slow. */
+
+      guint count = g_slist_length (g_remove_fds);
+      struct kevent *kold = *events;
+      size_t oldsize = *kq_size;
+      size_t newsize = oldsize - count;
+      int i, j;
+
+      if (newsize < 1)
+        {
+          newsize = 1;
+        }
+
+      *events = calloc (newsize, sizeof (struct kevent));
+      *events[0] = kold[0];
+
+      for (i = 1, j = 1; i < oldsize; i++)
+        {
+          GSList *elem = g_slist_find (g_remove_fds, GINT_TO_POINTER (kold[i].ident));
+          if (elem == NULL)
+            {
+              /* TODO: Here we are copying a complete structure contents.
+               * On x86 system, a sizeof(struct kqueue) should be 28 bytes long.
+               * Probably it would be better to use a memory pool and copy just
+               * pointers here, not an actual data. */
+              *events[j++] = kold[i];
+            }
+          else
+            {
+              close (kold[i].ident);
+            }
+        }
+      g_slist_free (g_remove_fds);
+      free (kold);
+      g_remove_fds = NULL;
+      *kq_size = newsize;
+    }
+  G_UNLOCK (remove_lock);
 }
 
 
@@ -102,7 +159,11 @@ _kqueue_thread_func (void *arg)
         read (fd, &c, 1);
         if (c == 'A')
           {
-            _kqueue_thread_update_fds (&waiting, &kq_size);
+            _kqueue_thread_collect_fds (&waiting, &kq_size);
+          }
+        else if (c == 'R')
+          {
+            _kqueue_thread_cleanup_fds (&waiting, &kq_size);
           }
       }
     else if (!(received.fflags & EV_ERROR))
@@ -125,4 +186,13 @@ _kqueue_thread_push_fd (int fd)
   G_LOCK (pick_up_lock);
   g_pick_up_fds = g_slist_prepend (g_pick_up_fds, GINT_TO_POINTER (fd));
   G_UNLOCK (pick_up_lock);
+}
+
+
+void
+_kqueue_thread_remove_fd (int fd)
+{
+  G_LOCK (remove_lock);
+  g_remove_fds = g_slist_prepend (g_remove_fds, GINT_TO_POINTER (fd));
+  G_UNLOCK (remove_lock);
 }

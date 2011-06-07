@@ -9,7 +9,8 @@ struct kqueue_notification {
 };
 
 
-void* _kqueue_thread_func     (void *arg);
-void  _kqueue_thread_push_fd  (int fd);
+void* _kqueue_thread_func      (void *arg);
+void  _kqueue_thread_push_fd   (int fd);
+void  _kqueue_thread_remove_fd (int fd);
 
 #endif /* __KQUEUE_SUB_H */
