@@ -30,7 +30,7 @@ g_kqueue_directory_monitor_finalize (GObject *object)
   
   if (sub)
     {
-      /* TODO: cancel the subscription here */
+      _kh_cancel_sub (sub);
       _kh_sub_free (sub);
       kqueue_monitor->sub = NULL;
     }
