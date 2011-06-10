@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include "kqueue-helper.h"
 #include "kqueue-thread.h"
+#include "kqueue-missing.h"
 
 static gboolean kh_debug_enabled = TRUE;
 #define KH_W if (kh_debug_enabled) g_warning
@@ -26,6 +27,9 @@ static int g_sockpair[] = {-1, -1};
 static pthread_t g_kqueue_thread;
 
 
+void _kh_file_appeared_cb (kqueue_sub *sub);
+
+
 static GFileMonitorEvent
 convert_kqueue_events_to_gio (uint32_t flags)
 {
@@ -39,8 +43,7 @@ convert_kqueue_events_to_gio (uint32_t flags)
     {NOTE_EXTEND, G_FILE_MONITOR_EVENT_CHANGED},
     {NOTE_RENAME, G_FILE_MONITOR_EVENT_MOVED}
   };
-  /* TODO: The following notifications should be emulated:
-   *   G_FILE_MONITOR_EVENT_CREATED
+  /* TODO: The following notifications should be emulated, if possible:
    *   G_FILE_MONITOR_EVENT_PRE_UNMOUNT
    *   G_FILE_MONITOR_EVENT_UNMOUNTED */
   
@@ -82,7 +85,11 @@ process_kqueue_notifications (GIOChannel  *gioc,
   child = g_file_new_for_path (sub->filename);
   other = NULL; /* TODO: Do something. */
 
-  /* TODO: Remove subscription on NOTE_DELETE event? */
+  if (n.flags & (NOTE_DELETE | NOTE_REVOKE))
+  {
+    _km_add_missing (sub);
+    _kh_cancel_sub (sub);
+  }
   mask  = convert_kqueue_events_to_gio (n.flags);
 
   g_file_monitor_emit_event (monitor, child, other, mask);
@@ -143,6 +150,8 @@ _kh_startup (void)
       return FALSE;
     }
 
+  _km_init (_kh_file_appeared_cb);
+
   /* TODO: Non-blocking options for sockets? */
   channel = g_io_channel_unix_new (g_sockpair[0]);
   g_io_add_watch (channel, G_IO_IN, process_kqueue_notifications, NULL);
@@ -159,7 +168,7 @@ _kh_startup (void)
 
 
 gboolean
-_kh_add_sub (kqueue_sub *sub)
+_kh_start_watching (kqueue_sub *sub)
 {
   g_assert (g_sockpair[0] != -1);
   g_assert (sub != NULL);
@@ -170,8 +179,6 @@ _kh_add_sub (kqueue_sub *sub)
 
   if (sub->fd == -1)
     {
-      /* TODO: Implement monitoring for missing files that can appear
-       * later, as in the inotify backend */
       KH_W ("failed to open file %s\n", sub->filename);
       return FALSE;
     }
@@ -184,6 +191,18 @@ _kh_add_sub (kqueue_sub *sub)
   
   /* Bump the kqueue thread. It will pick up a new sub entry to monitor */
   write(g_sockpair[0], "A", 1);
+  return TRUE;
+}
+
+
+gboolean
+_kh_add_sub (kqueue_sub *sub)
+{
+  g_assert (sub != NULL);
+
+  if (!_kh_start_watching (sub))
+    _km_add_missing (sub);
+
   return TRUE;
 }
 
@@ -204,4 +223,29 @@ _kh_cancel_sub (kqueue_sub *sub)
   /* Bump the kqueue thread. It will pick up a new sub entry to remove*/
   write(g_sockpair[0], "R", 1);
   return TRUE;
+}
+
+
+void
+_kh_file_appeared_cb (kqueue_sub *sub)
+{
+  GFileMonitorEvent eflags;
+  GFile* child;
+
+  g_assert (sub != NULL);
+  g_assert (sub->filename);
+
+  if (!g_file_test (sub->filename, G_FILE_TEST_EXISTS))
+    {
+      return;
+    }
+
+  child = g_file_new_for_path (sub->filename);
+
+  g_file_monitor_emit_event (G_FILE_MONITOR (sub->user_data),
+                             child,
+                             NULL,
+                             G_FILE_MONITOR_EVENT_CREATED);
+
+  g_object_unref (child);
 }
