@@ -3,9 +3,9 @@
 
 typedef struct
 {
-	gchar*   filename;
-	gboolean cancelled;
-	gpointer user_data;
+  gchar*   filename;
+  gboolean cancelled;
+  gpointer user_data;
   gboolean pair_moves;
   int      fd;
 } kqueue_sub;
