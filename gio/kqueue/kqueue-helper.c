@@ -20,8 +20,6 @@ G_GNUC_INTERNAL G_LOCK_DEFINE (kqueue_lock);
 static GHashTable *g_sub_hash = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (hash_lock);
 
-/* TODO: Too many locks. Isn't it? */
-
 int g_kqueue = -1;
 static int g_sockpair[] = {-1, -1};
 static pthread_t g_kqueue_thread;
@@ -106,22 +104,20 @@ _kh_startup (void)
 
   GIOChannel *channel;
 
-  /* TODO: This logic has been taken from the original inotify plugin.
-   * I assume that it would be faster to check the `initialized' flag
-   * before locking the `kqueue_lock' (the double-checked locking
-   * pattern). */
+  if (initialized == TRUE)
+  {
+    return result;
+  }
+
   G_LOCK (kqueue_lock);
 
   if (initialized == TRUE)
     {
+      /* it was a double-checked locking */
       G_UNLOCK (kqueue_lock);
       return result;
     }
 
-   /* TODO: Need something cuter here?
-    * inotify backend is decomposed into modules like inotify-path,
-    * inotify-lernel and so on. For now I will do all the init9n stuff
-    * right here. */
   g_kqueue = kqueue();
   result = (-1 != g_kqueue);
   if (!result)
@@ -152,7 +148,6 @@ _kh_startup (void)
 
   _km_init (_kh_file_appeared_cb);
 
-  /* TODO: Non-blocking options for sockets? */
   channel = g_io_channel_unix_new (g_sockpair[0]);
   g_io_add_watch (channel, G_IO_IN, process_kqueue_notifications, NULL);
 
