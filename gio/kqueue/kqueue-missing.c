@@ -100,3 +100,12 @@ km_scan_missing (gpointer user_data)
   G_UNLOCK (missing_lock);
   return retval;
 }
+
+
+void
+_km_remove (kqueue_sub *sub)
+{
+  G_LOCK (missing_lock);
+  g_missing_subs = g_slist_remove (g_missing_subs, sub);
+  G_UNLOCK (missing_lock);
+}
