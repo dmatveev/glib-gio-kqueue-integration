@@ -117,10 +117,6 @@ _kqueue_thread_cleanup_fds (struct kevent **events, size_t *kq_size)
           GSList *elem = g_slist_find (g_remove_fds, GINT_TO_POINTER (kold[i].ident));
           if (elem == NULL)
             {
-              /* TODO: Here we are copying a complete structure contents.
-               * On x86 system, a sizeof(struct kqueue) should be 28 bytes long.
-               * Probably it would be better to use a memory pool and copy just
-               * pointers here, not an actual data. */
               *events[j++] = kold[i];
             }
           else
