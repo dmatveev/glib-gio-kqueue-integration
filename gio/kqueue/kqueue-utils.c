@@ -27,13 +27,6 @@
 
 #define KEVENTS_EXTEND_COUNT 10
 
-void
-kevents_init (kevents *kv)
-{
-  g_assert (kv != NULL);
-  memset (kv, 0, sizeof (kevents));
-}
-
 
 void
 kevents_init_sz (kevents *kv, gsize n_initial)
@@ -41,28 +34,15 @@ kevents_init_sz (kevents *kv, gsize n_initial)
   g_assert (kv != NULL);
   g_assert (n_initial > 0);
 
-  kevents_init (kv);
+  memset (kv, 0, sizeof (kevents));
+
+  if (n_initial < KEVENTS_EXTEND_COUNT)
+  {
+    n_initial = KEVENTS_EXTEND_COUNT;
+  }
+
   kv->memory = g_new0 (struct kevent, n_initial);
   kv->kq_allocated = n_initial;
-}
-
-
-void
-kevents_extend (kevents *kv)
-{
-  g_assert (kv != NULL);
-
-  if (kv->kq_allocated == 0)
-    {
-      kv->memory = g_new0 (struct kevent, KEVENTS_EXTEND_COUNT);
-      return;
-    }
-    
-  if (kv->kq_size == kv->kq_allocated)
-    {
-      kv->kq_allocated += KEVENTS_EXTEND_COUNT;
-      kv->memory = g_renew (struct kevent, kv->memory, kv->kq_allocated);
-    }
 }
 
 
@@ -82,21 +62,32 @@ kevents_extend_sz (kevents *kv, gsize n_new)
 
 
 void
+kevents_reduce (kevents *kv)
+{
+  g_assert (kv != NULL);
+  gsize candidate_sz;
+
+  if (kv->kq_size == 0 || kv->kq_allocated == 0 || kv->memory == NULL)
+    {
+      return;
+    }
+
+  candidate_sz = 2 * kv->kq_size;
+
+  if (((double) kv->kq_allocated / kv->kq_size) >= 3 &&
+      candidate_sz >= KEVENTS_EXTEND_COUNT)
+    {
+      kv->kq_allocated = candidate_sz;
+      kv->memory = g_renew (struct kevent, kv->memory, kv->kq_allocated);
+    }
+}
+
+
+void
 kevents_free (kevents *kv)
 {
   g_assert (kv != NULL);
 
   g_free (kv->memory);
   memset (kv, 0, sizeof (kevents));
-}
-
-
-void
-kevents_swap_by (kevents *dst, const kevents *src)
-{
-  g_assert (dst != NULL);
-  g_assert (src != NULL);
-
-  kevents_free (dst);
-  *dst = *src;
 }

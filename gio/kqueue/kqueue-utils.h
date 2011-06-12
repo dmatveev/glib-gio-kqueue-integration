@@ -29,11 +29,9 @@ typedef struct {
   gsize kq_allocated;
 } kevents;
 
-void kevents_init      (kevents *kv);
 void kevents_init_sz   (kevents *kv, gsize n_initial);
-void kevents_extend    (kevents *kv);
 void kevents_extend_sz (kevents *kv, gsize n_new);
+void kevents_reduce    (kevents *kv);
 void kevents_free      (kevents *kv);
-void kevents_swap_by   (kevents *dst, const kevents *src);
 
 #endif /* __KQUEUE_UTILS_H */

@@ -89,15 +89,8 @@ _kqueue_thread_cleanup_fds (kevents *events)
   G_LOCK (remove_lock);
   if (g_remove_fds)
     {
-      /* kevent(2) expects a continuous piece of memory passed as
-       * `eventlist' argument. So, I do not see any other solution
-       * than just to reallocate and filter out the existing kevents.
-       * Yes, it is slow. */
-
-      kevents knew;
-      guint count = g_slist_length (g_remove_fds);
       size_t oldsize = events->kq_size;
-      size_t newsize = oldsize - count;
+      size_t newsize = oldsize - g_slist_length (g_remove_fds);
       int i, j;
 
       if (newsize < 1)
@@ -105,25 +98,25 @@ _kqueue_thread_cleanup_fds (kevents *events)
           newsize = 1;
         }
 
-      kevents_init_sz (&knew, newsize);
-      knew.memory[0] = events->memory[0];
-
       for (i = 1, j = 1; i < oldsize; i++)
         {
           int fd = events->memory[i].ident;
           GSList *elem = g_slist_find (g_remove_fds, GINT_TO_POINTER (fd));
           if (elem == NULL)
             {
-              knew.memory[j++] = events->memory[i];
+              if (j != i)
+                {
+                  events->memory[j++] = events->memory[i];
+                }
             }
           else
             {
               close (fd);
             }
         }
-      knew.kq_size = j;
+      events->kq_size = j;
+      kevents_reduce (events);
       g_slist_free (g_remove_fds);
-      kevents_swap_by (events, &knew);
       g_remove_fds = NULL;
     }
   G_UNLOCK (remove_lock);
@@ -191,7 +184,7 @@ _kqueue_thread_func (void *arg)
         write (fd, &kn, sizeof (struct kqueue_notification));
       }
   }
-
+  kevents_free (&waiting);
   return NULL;
 }
 
