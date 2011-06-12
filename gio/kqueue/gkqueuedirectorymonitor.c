@@ -25,12 +25,10 @@
 #include "gkqueuedirectorymonitor.h"
 #include "kqueue-helper.h"
 #include <gio/giomodule.h>
-#include <assert.h>
 
 struct _GKqueueDirectoryMonitor
 {
   GLocalDirectoryMonitor parent_instance;
-  gchar *filename;
   kqueue_sub *sub;
   gboolean pair_moves;
 };
@@ -57,12 +55,6 @@ g_kqueue_directory_monitor_finalize (GObject *object)
       kqueue_monitor->sub = NULL;
     }
 
-  if (kqueue_monitor->filename)
-    {
-      g_free (kqueue_monitor->filename);
-      kqueue_monitor->filename = NULL;
-    }
-
   if (G_OBJECT_CLASS (g_kqueue_directory_monitor_parent_class)->finalize)
     (*G_OBJECT_CLASS (g_kqueue_directory_monitor_parent_class)->finalize) (object);
 }
@@ -86,13 +78,12 @@ g_kqueue_directory_monitor_constructor (GType                 type,
                                    construct_properties);
 
   kqueue_monitor = G_KQUEUE_DIRECTORY_MONITOR (obj);
-  kqueue_monitor->filename = g_strdup (G_LOCAL_DIRECTORY_MONITOR (obj)->dirname);
 
   ret_kh_startup = _kh_startup();
-  assert (ret_kh_startup);
+  g_assert (ret_kh_startup);
 
   /* TODO: pair moves. */
-  sub = _kh_sub_new (kqueue_monitor->filename,
+  sub = _kh_sub_new (G_LOCAL_DIRECTORY_MONITOR (obj)->dirname,
                      FALSE,
                      kqueue_monitor);
 
