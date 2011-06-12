@@ -24,7 +24,6 @@
 #include <sys/event.h>
 #include <sys/time.h>
 #include <unistd.h>
-#include <stdlib.h> /* TODO: {c,re}alloc. Probably should use smt from Glib instead? */
 #include <glib.h>
 
 #include "kqueue-thread.h"
@@ -64,7 +63,7 @@ _kqueue_thread_collect_fds (struct kevent **events, size_t *kq_size)
     {
       GSList *head = g_pick_up_fds;
       guint count = g_slist_length (g_pick_up_fds);
-      *events = realloc (*events, (*kq_size + count) * sizeof (struct kevent));
+      *events = g_renew (struct kevent, *events, (*kq_size + count));
       while (head)
       {
         struct kevent *pevent = &(*events)[(*kq_size)++];
@@ -110,7 +109,7 @@ _kqueue_thread_cleanup_fds (struct kevent **events, size_t *kq_size)
           newsize = 1;
         }
 
-      *events = calloc (newsize, sizeof (struct kevent));
+      *events = g_new0 (struct kevent, newsize);
       *events[0] = kold[0];
 
       for (i = 1, j = 1; i < oldsize; i++)
@@ -130,7 +129,7 @@ _kqueue_thread_cleanup_fds (struct kevent **events, size_t *kq_size)
             }
         }
       g_slist_free (g_remove_fds);
-      free (kold);
+      g_free (kold);
       g_remove_fds = NULL;
       *kq_size = newsize;
     }
@@ -146,7 +145,7 @@ _kqueue_thread_func (void *arg)
   size_t kq_size = 1;
 
   /* TODO: A better memory allocation strategy */
-  waiting = calloc (1, sizeof (struct kevent));
+  waiting = g_new0 (struct kevent, 1);
 
   fd = *(int *) arg;
 
