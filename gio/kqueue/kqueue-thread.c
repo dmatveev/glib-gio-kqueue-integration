@@ -28,7 +28,7 @@
 
 #include "kqueue-thread.h"
 #include "kqueue-sub.h"
-
+#include "kqueue-utils.h"
 
 static gboolean kt_debug_enabled = TRUE;
 #define KT_W if (kt_debug_enabled) g_warning
@@ -52,21 +52,19 @@ extern int g_kqueue;
 
 
 static void
-_kqueue_thread_collect_fds (struct kevent **events, size_t *kq_size)
+_kqueue_thread_collect_fds (kevents *events)
 {
   g_assert (events != NULL);
-  g_assert (*events != NULL);
-  g_assert (kq_size != NULL);
 
   G_LOCK (pick_up_lock);
   if (g_pick_up_fds)
     {
       GSList *head = g_pick_up_fds;
       guint count = g_slist_length (g_pick_up_fds);
-      *events = g_renew (struct kevent, *events, (*kq_size + count));
+      kevents_extend_sz (events, count);
       while (head)
       {
-        struct kevent *pevent = &(*events)[(*kq_size)++];
+        struct kevent *pevent = &events->memory[events->kq_size++];
         EV_SET (pevent,
                 GPOINTER_TO_INT (head->data),
                 EVFILT_VNODE,
@@ -84,11 +82,9 @@ _kqueue_thread_collect_fds (struct kevent **events, size_t *kq_size)
 
 
 static void
-_kqueue_thread_cleanup_fds (struct kevent **events, size_t *kq_size)
+_kqueue_thread_cleanup_fds (kevents *events)
 {
   g_assert (events != NULL);
-  g_assert (*events != NULL);
-  g_assert (kq_size != NULL);
 
   G_LOCK (remove_lock);
   if (g_remove_fds)
@@ -98,9 +94,9 @@ _kqueue_thread_cleanup_fds (struct kevent **events, size_t *kq_size)
        * than just to reallocate and filter out the existing kevents.
        * Yes, it is slow. */
 
+      kevents knew;
       guint count = g_slist_length (g_remove_fds);
-      struct kevent *kold = *events;
-      size_t oldsize = *kq_size;
+      size_t oldsize = events->kq_size;
       size_t newsize = oldsize - count;
       int i, j;
 
@@ -109,25 +105,26 @@ _kqueue_thread_cleanup_fds (struct kevent **events, size_t *kq_size)
           newsize = 1;
         }
 
-      *events = g_new0 (struct kevent, newsize);
-      *events[0] = kold[0];
+      kevents_init_sz (&knew, newsize);
+      knew.memory[0] = events->memory[0];
 
       for (i = 1, j = 1; i < oldsize; i++)
         {
-          GSList *elem = g_slist_find (g_remove_fds, GINT_TO_POINTER (kold[i].ident));
+          int fd = events->memory[i].ident;
+          GSList *elem = g_slist_find (g_remove_fds, GINT_TO_POINTER (fd));
           if (elem == NULL)
             {
-              *events[j++] = kold[i];
+              knew.memory[j++] = events->memory[i];
             }
           else
             {
-              close (kold[i].ident);
+              close (fd);
             }
         }
+      knew.kq_size = j;
       g_slist_free (g_remove_fds);
-      g_free (kold);
+      kevents_swap_by (events, &knew);
       g_remove_fds = NULL;
-      *kq_size = newsize;
     }
   G_UNLOCK (remove_lock);
 }
@@ -137,11 +134,8 @@ void*
 _kqueue_thread_func (void *arg)
 {
   int fd;
-  struct kevent *waiting;
-  size_t kq_size = 1;
-
-  /* TODO: A better memory allocation strategy */
-  waiting = g_new0 (struct kevent, 1);
+  kevents waiting;
+  kevents_init_sz (&waiting, 1);
 
   fd = *(int *) arg;
 
@@ -151,13 +145,14 @@ _kqueue_thread_func (void *arg)
     return NULL;
   }
 
-  EV_SET (&waiting[0],
+  EV_SET (&waiting.memory[0],
           fd,
           EVFILT_READ,
           EV_ADD | EV_ENABLE | EV_ONESHOT,
           NOTE_LOWAT,
           1,
           0);
+  waiting.kq_size = 1;
 
   for (;;) {
     /* TODO: Provide more items in the `eventlist' to kqueue(2).
@@ -167,7 +162,7 @@ _kqueue_thread_func (void *arg)
      * high filesystem activity on each. */
      
     struct kevent received;
-    int ret = kevent (g_kqueue, waiting, kq_size, &received, 1, NULL);
+    int ret = kevent (g_kqueue, waiting.memory, waiting.kq_size, &received, 1, NULL);
 
     if (ret == -1) {
       KT_W ("kevent failed\n");
@@ -180,11 +175,11 @@ _kqueue_thread_func (void *arg)
         read (fd, &c, 1);
         if (c == 'A')
           {
-            _kqueue_thread_collect_fds (&waiting, &kq_size);
+            _kqueue_thread_collect_fds (&waiting);
           }
         else if (c == 'R')
           {
-            _kqueue_thread_cleanup_fds (&waiting, &kq_size);
+            _kqueue_thread_cleanup_fds (&waiting);
           }
       }
     else if (!(received.fflags & EV_ERROR))
