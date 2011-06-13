@@ -71,12 +71,9 @@ convert_kqueue_events_to_gio (uint32_t flags)
   int i;
 
   for (i = 0; i < sizeof (translations) / sizeof (translations[0]); i++)
-    {
       if (flags & translations[i].kqueue_code)
-      {
         result |= translations[i].gio_code;
-      }
-    }
+
   return result;
 }
 
@@ -127,9 +124,7 @@ _kh_startup (void)
   GIOChannel *channel;
 
   if (initialized == TRUE)
-  {
     return result;
-  }
 
   G_LOCK (kqueue_lock);
 
@@ -265,9 +260,7 @@ _kh_file_appeared_cb (kqueue_sub *sub)
   g_assert (sub->filename);
 
   if (!g_file_test (sub->filename, G_FILE_TEST_EXISTS))
-    {
       return;
-    }
 
   child = g_file_new_for_path (sub->filename);
 

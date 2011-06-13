@@ -94,9 +94,7 @@ _kqueue_thread_cleanup_fds (kevents *events)
       int i, j;
 
       if (newsize < 1)
-        {
           newsize = 1;
-        }
 
       for (i = 1, j = 1; i < oldsize; i++)
         {
@@ -105,14 +103,10 @@ _kqueue_thread_cleanup_fds (kevents *events)
           if (elem == NULL)
             {
               if (j != i)
-                {
                   events->memory[j++] = events->memory[i];
-                }
             }
           else
-            {
               close (fd);
-            }
         }
       events->kq_size = j;
       kevents_reduce (events);
@@ -167,13 +161,9 @@ _kqueue_thread_func (void *arg)
         char c;
         read (fd, &c, 1);
         if (c == 'A')
-          {
             _kqueue_thread_collect_fds (&waiting);
-          }
         else if (c == 'R')
-          {
             _kqueue_thread_cleanup_fds (&waiting);
-          }
       }
     else if (!(received.fflags & EV_ERROR))
       {

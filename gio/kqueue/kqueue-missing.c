@@ -81,9 +81,7 @@ km_scan_missing (gpointer user_data)
   G_LOCK (missing_lock);
 
   if (g_missing_subs)
-    {
-      KM_W ("we have a job");
-    }
+    KM_W ("we have a job");
 
   for (head = g_missing_subs; head; head = head->next)
     {
@@ -95,9 +93,7 @@ km_scan_missing (gpointer user_data)
         {
           KM_W ("file %s now exists, starting watching", sub->filename);
           if (g_cb)
-            {
-              g_cb (sub);
-            }
+            g_cb (sub);
           not_missing = g_slist_prepend (not_missing, head);
         }
     }
@@ -115,9 +111,7 @@ km_scan_missing (gpointer user_data)
       retval = FALSE;
     }
   else
-  {
     retval = TRUE;
-  }
 
   G_UNLOCK (missing_lock);
   return retval;

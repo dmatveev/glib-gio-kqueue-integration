@@ -37,9 +37,7 @@ kevents_init_sz (kevents *kv, gsize n_initial)
   memset (kv, 0, sizeof (kevents));
 
   if (n_initial < KEVENTS_EXTEND_COUNT)
-  {
     n_initial = KEVENTS_EXTEND_COUNT;
-  }
 
   kv->memory = g_new0 (struct kevent, n_initial);
   kv->kq_allocated = n_initial;
@@ -52,9 +50,7 @@ kevents_extend_sz (kevents *kv, gsize n_new)
   g_assert (kv != NULL);
 
   if (kv->kq_size + n_new <= kv->kq_allocated)
-    {
-      return;
-    }
+    return;
 
   kv->kq_allocated += (n_new + KEVENTS_EXTEND_COUNT);
   kv->memory = g_renew (struct kevent, kv->memory, kv->kq_allocated);
@@ -68,9 +64,7 @@ kevents_reduce (kevents *kv)
   gsize candidate_sz;
 
   if (kv->kq_size == 0 || kv->kq_allocated == 0 || kv->memory == NULL)
-    {
-      return;
-    }
+    return;
 
   candidate_sz = 2 * kv->kq_size;
 
