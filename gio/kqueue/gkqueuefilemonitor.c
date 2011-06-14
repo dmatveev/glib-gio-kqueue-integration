@@ -1,18 +1,34 @@
+/*******************************************************************************
+  Copyright (c) 2011 Dmitry Matveev <me@dmitrymatveev.co.uk>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
+*******************************************************************************/
+
 #include "config.h"
 
 #include "gkqueuefilemonitor.h"
 #include "kqueue-helper.h"
 #include <gio/giomodule.h>
-#include <assert.h>
 
-/* TODO: This code is also written as in the inotify backend, but wait.
- * kqueue_sub already contains `filename' and `pair_moves' fields. Do
- * we need it in the `GKqueueFileMonitor', since we already have a `sub'
- * field? Probably I will drop it. */
 struct _GKqueueFileMonitor
 {
   GLocalFileMonitor parent_instance;
-  gchar *filename;
   kqueue_sub *sub;
   gboolean pair_moves;
 };
@@ -39,12 +55,6 @@ g_kqueue_file_monitor_finalize (GObject *object)
       kqueue_monitor->sub = NULL;
     }
 
-  if (kqueue_monitor->filename)
-    {
-      g_free (kqueue_monitor->filename);
-      kqueue_monitor->filename = NULL;
-    }
-
   if (G_OBJECT_CLASS (g_kqueue_file_monitor_parent_class)->finalize)
     (*G_OBJECT_CLASS (g_kqueue_file_monitor_parent_class)->finalize) (object);
 }
@@ -68,13 +78,15 @@ g_kqueue_file_monitor_constructor (GType                 type,
                                    construct_properties);
 
   kqueue_monitor = G_KQUEUE_FILE_MONITOR (obj);
-  kqueue_monitor->filename = g_strdup (G_LOCAL_FILE_MONITOR (obj)->filename);
 
   ret_kh_startup = _kh_startup();
-  assert (ret_kh_startup);
+  g_assert (ret_kh_startup);
 
-  /* TODO: pair moves. */
-  sub = _kh_sub_new (kqueue_monitor->filename,
+  /* Pair moves notifications are unavailable for now, because kqueue does not
+   * provide us enough info and we cannot *gracefully* determine a new file
+   * path by a file descriptor.
+   */
+  sub = _kh_sub_new (G_LOCAL_FILE_MONITOR (obj)->filename,
                      FALSE,
                      kqueue_monitor);
 
