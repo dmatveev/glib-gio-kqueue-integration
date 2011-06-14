@@ -40,6 +40,13 @@ G_GNUC_INTERNAL G_LOCK_DEFINE (missing_lock);
 static gboolean scan_missing_running = FALSE;
 static on_create_cb g_cb;
 
+
+/**
+ * Initialize the kqueue-missing module (optional).
+ *
+ * @param a callback function. It will be called when a watched file
+ *        will appear.
+ */
 void
 _km_init (on_create_cb cb)
 {
@@ -47,6 +54,11 @@ _km_init (on_create_cb cb)
 }
 
 
+/**
+ * Add a subscription to the missing files list.
+ *
+ * @param a subscription object to add.
+ */
 void
 _km_add_missing (kqueue_sub *sub)
 {
@@ -66,11 +78,19 @@ _km_add_missing (kqueue_sub *sub)
       scan_missing_running = TRUE;
       g_timeout_add_seconds (SCAN_MISSING_TIME, km_scan_missing, NULL);
     }
-
-  return TRUE;
 }
 
 
+/**
+ * The core missing files watching routine.
+ *
+ * Traverses through a list of missing files, tries to start watching each with
+ * kqueue, removes the appropriate entry and invokes a user callback if the file
+ * has appeared.
+ *
+ * @param unused.
+ * @return FALSE if no missing files left, TRUE otherwise.
+ */
 static gboolean
 km_scan_missing (gpointer user_data)
 {
@@ -118,6 +138,11 @@ km_scan_missing (gpointer user_data)
 }
 
 
+/**
+ * Remove a subscription from a list of missing files.
+ *
+ * @param a subscription object to remove
+ */
 void
 _km_remove (kqueue_sub *sub)
 {

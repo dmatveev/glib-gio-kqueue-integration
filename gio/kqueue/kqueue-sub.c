@@ -27,6 +27,15 @@
 static gboolean is_debug_enabled = FALSE;
 #define KS_W if (is_debug_enabled) g_warning
 
+
+/**
+ * Create a new subscription object.
+ *
+ * @param file path to monitor (will be copied).
+ * @param pair moves flag. Refer to \enum GFileMonitorFlags documentation.
+ * @param user-supplied poiner.
+ * @returns a new subscription object.
+ */
 kqueue_sub*
 _kh_sub_new (const gchar *filename,
              gboolean     pair_moves,
@@ -45,6 +54,14 @@ _kh_sub_new (const gchar *filename,
   return sub;
 }
 
+
+/**
+ * Free a subscription object.
+ *
+ * The object itself and all its associated memory will be freed.
+ *
+ * @param a subscription object.
+ */
 void
 _kh_sub_free (kqueue_sub *sub)
 {

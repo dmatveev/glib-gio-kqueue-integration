@@ -28,11 +28,17 @@
 #define KEVENTS_EXTEND_COUNT 10
 
 
+/**
+ * Initialize a kevents object.
+ *
+ * @param a pointer to kevents object.
+ * @param the initial preallocated memory size. If it is less than
+ *        KEVENTS_EXTEND_COUNT, this value will be used instead.
+ */
 void
 kevents_init_sz (kevents *kv, gsize n_initial)
 {
   g_assert (kv != NULL);
-  g_assert (n_initial > 0);
 
   memset (kv, 0, sizeof (kevents));
 
@@ -44,6 +50,12 @@ kevents_init_sz (kevents *kv, gsize n_initial)
 }
 
 
+/**
+ * Extend the allocated memory, if needed.
+ *
+ * @param a pointer to kevents object.
+ * @param a number of new objects to be added.
+ */
 void
 kevents_extend_sz (kevents *kv, gsize n_new)
 {
@@ -57,6 +69,14 @@ kevents_extend_sz (kevents *kv, gsize n_new)
 }
 
 
+/**
+ * Reduce the allocated heap size, if needed.
+ *
+ * If the allocated heap size is >= 3*used
+ * and 2*used >= KEVENTS_EXTEND_COUNT, reduce it to 2*used.
+ *
+ * @param a pointer to kevents object.
+ */
 void
 kevents_reduce (kevents *kv)
 {
@@ -77,6 +97,11 @@ kevents_reduce (kevents *kv)
 }
 
 
+/**
+ * Reset the kevents object and free all the associated memory.
+ *
+ * @param a pointer to kevents object.
+ */
 void
 kevents_free (kevents *kv)
 {

@@ -23,10 +23,15 @@
 #ifndef __KQUEUE_THREAD_H
 #define __KQUEUE_THREAD_H
 
-
+/**
+ * \struct kqueue_notification
+ *
+ * Represents an event occured on a file descriptor. Used for marshalling from
+ * kqueue thread to its subscribers.
+ */
 struct kqueue_notification {
-  int fd;             /* file descriptor, on which an activity occured */
-  uint32_t flags;     /* kqueue event flags, see man kevent(2) */
+  int fd;             /**< file descriptor, on which an activity has occured. */
+  uint32_t flags;     /**< kqueue event flags, see man kevent(2). */
 };
 
 
