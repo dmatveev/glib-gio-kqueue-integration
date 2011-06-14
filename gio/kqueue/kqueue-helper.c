@@ -118,7 +118,7 @@ process_kqueue_notifications (GIOChannel  *gioc,
   g_assert (monitor != NULL);
 
   child = g_file_new_for_path (sub->filename);
-  other = NULL; /* TODO: Do something. */
+  other = NULL; /* No pair moves, always NULL */
 
   if (n.flags & (NOTE_DELETE | NOTE_REVOKE))
   {
