@@ -20,30 +20,18 @@
   THE SOFTWARE.
 *******************************************************************************/
 
-#ifndef __G_KQUEUE_DIRECTORY_MONITOR_H__
-#define __G_KQUEUE_DIRECTORY_MONITOR_H__
+#ifndef __KQUEUE_UTILS_H
+#define __KQUEUE_UTILS_H
 
-#include <glib-object.h>
-#include <gio/glocaldirectorymonitor.h>
-#include <gio/giomodule.h>
+typedef struct {
+  struct kevent *memory;
+  gsize kq_size;
+  gsize kq_allocated;
+} kevents;
 
-G_BEGIN_DECLS
+void kevents_init_sz   (kevents *kv, gsize n_initial);
+void kevents_extend_sz (kevents *kv, gsize n_new);
+void kevents_reduce    (kevents *kv);
+void kevents_free      (kevents *kv);
 
-#define G_TYPE_KQUEUE_DIRECTORY_MONITOR        (_g_kqueue_directory_monitor_get_type ())
-#define G_KQUEUE_DIRECTORY_MONITOR(o)          (G_TYPE_CHECK_INSTANCE_CAST ((o), G_TYPE_KQUEUE_DIRECTORY_MONITOR, GKqueueDirectoryMonitor))
-#define G_KQUEUE_DIRECTORY_MONITOR_CLASS(k)    (G_TYPE_CHECK_CLASS_CAST ((k), G_TYPE_KQUEUE_DIRECTORY_MONITOR, GKqueueDirectoryMonitorClass))
-#define G_IS_KQUEUE_DIRECTORY_MONITOR(o)       (G_TYPE_CHECK_INSTANCE_TYPE ((o), G_TYPE_KQUEUE_DIRECTORY_MONITOR))
-#define G_IS_KQUEUE_DIRECTORY_MONITOR_CLASS(k) (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_KQUEUE_DIRECTORY_MONITOR))
-
-typedef struct _GKqueueDirectoryMonitor      GKqueueDirectoryMonitor;
-typedef struct _GKqueueDirectoryMonitorClass GKqueueDirectoryMonitorClass;
-
-struct _GKqueueDirectoryMonitorClass {
-  GLocalDirectoryMonitorClass parent_class;
-};
-
-GType _g_kqueue_directory_monitor_get_type (void);
-
-G_END_DECLS
-
-#endif /* __G_KQUEUE_DIRECTORY_MONITOR_H__ */
+#endif /* __KQUEUE_UTILS_H */

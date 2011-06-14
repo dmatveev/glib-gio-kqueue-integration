@@ -1,3 +1,25 @@
+/*******************************************************************************
+  Copyright (c) 2011 Dmitry Matveev <me@dmitrymatveev.co.uk>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
+*******************************************************************************/
+
 #include "config.h"
 #include <sys/event.h>
 #include <sys/time.h>
@@ -20,8 +42,6 @@ G_GNUC_INTERNAL G_LOCK_DEFINE (kqueue_lock);
 static GHashTable *g_sub_hash = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (hash_lock);
 
-/* TODO: Too many locks. Isn't it? */
-
 int g_kqueue = -1;
 static int g_sockpair[] = {-1, -1};
 static pthread_t g_kqueue_thread;
@@ -29,7 +49,12 @@ static pthread_t g_kqueue_thread;
 
 void _kh_file_appeared_cb (kqueue_sub *sub);
 
-
+/**
+ * Translate kqueue filter flags into GIO event flags.
+ *
+ * @param a set of kqueue filter flags.
+ * @returns a set of GIO flags.
+ */
 static GFileMonitorEvent
 convert_kqueue_events_to_gio (uint32_t flags)
 {
@@ -51,16 +76,26 @@ convert_kqueue_events_to_gio (uint32_t flags)
   int i;
 
   for (i = 0; i < sizeof (translations) / sizeof (translations[0]); i++)
-    {
       if (flags & translations[i].kqueue_code)
-      {
         result |= translations[i].gio_code;
-      }
-    }
+
   return result;
 }
 
 
+/**
+ * Process notifications, coming from the kqueue thread.
+ *
+ * Reads notifications from the command file descriptor, emits the
+ * "changed" event on the appropriate monitor.
+ *
+ * A typical GIO Channel callback function.
+ *
+ * @param unused.
+ * @param unused.
+ * @param unused.
+ * @returns TRUE.
+ */
 static gboolean
 process_kqueue_notifications (GIOChannel  *gioc,
                               GIOCondition cond,
@@ -83,7 +118,7 @@ process_kqueue_notifications (GIOChannel  *gioc,
   g_assert (monitor != NULL);
 
   child = g_file_new_for_path (sub->filename);
-  other = NULL; /* TODO: Do something. */
+  other = NULL; /* No pair moves, always NULL */
 
   if (n.flags & (NOTE_DELETE | NOTE_REVOKE))
   {
@@ -97,7 +132,11 @@ process_kqueue_notifications (GIOChannel  *gioc,
 }
 
 
-
+/**
+ * Kqueue backend initialization.
+ *
+ * @returns TRUE on success, FALSE otherwise.
+ */
 gboolean
 _kh_startup (void)
 {
@@ -106,22 +145,18 @@ _kh_startup (void)
 
   GIOChannel *channel;
 
-  /* TODO: This logic has been taken from the original inotify plugin.
-   * I assume that it would be faster to check the `initialized' flag
-   * before locking the `kqueue_lock' (the double-checked locking
-   * pattern). */
+  if (initialized == TRUE)
+    return result;
+
   G_LOCK (kqueue_lock);
 
   if (initialized == TRUE)
     {
+      /* it was a double-checked locking */
       G_UNLOCK (kqueue_lock);
       return result;
     }
 
-   /* TODO: Need something cuter here?
-    * inotify backend is decomposed into modules like inotify-path,
-    * inotify-lernel and so on. For now I will do all the init9n stuff
-    * right here. */
   g_kqueue = kqueue();
   result = (-1 != g_kqueue);
   if (!result)
@@ -152,7 +187,6 @@ _kh_startup (void)
 
   _km_init (_kh_file_appeared_cb);
 
-  /* TODO: Non-blocking options for sockets? */
   channel = g_io_channel_unix_new (g_sockpair[0]);
   g_io_add_watch (channel, G_IO_IN, process_kqueue_notifications, NULL);
 
@@ -167,6 +201,12 @@ _kh_startup (void)
 }
 
 
+/**
+ * Start watching a subscription.
+ *
+ * @param a subscription to monitor.
+ * @returns TRUE on success, FALSE otherwise.
+ */
 gboolean
 _kh_start_watching (kqueue_sub *sub)
 {
@@ -195,6 +235,17 @@ _kh_start_watching (kqueue_sub *sub)
 }
 
 
+/**
+ * Add a subscription for monitoring.
+ *
+ * This funciton tries to start watching a subscription with
+ * _kh_start_watching(). On failure, i.e. when a file does not exist yet,
+ * the subscription will be added to a list of missing files to continue
+ * watching when the file will appear.
+ *
+ * @param a subscription to monitor.
+ * @returns TRUE.
+ */
 gboolean
 _kh_add_sub (kqueue_sub *sub)
 {
@@ -207,6 +258,12 @@ _kh_add_sub (kqueue_sub *sub)
 }
 
 
+/**
+ * Stop monitoring a subscription.
+ *
+ * @param a subscription.
+ * @returns TRUE.
+ */
 gboolean
 _kh_cancel_sub (kqueue_sub *sub)
 {
@@ -238,6 +295,14 @@ _kh_cancel_sub (kqueue_sub *sub)
 }
 
 
+/**
+ * A callback function for kqueue-missing subsystem.
+ *
+ * Signals that a missing file has finally appeared in the filesystem.
+ * Emits G_FILE_MONITOR_EVENT_CREATED.
+ *
+ * @param a subscription.
+ */
 void
 _kh_file_appeared_cb (kqueue_sub *sub)
 {
@@ -248,9 +313,7 @@ _kh_file_appeared_cb (kqueue_sub *sub)
   g_assert (sub->filename);
 
   if (!g_file_test (sub->filename, G_FILE_TEST_EXISTS))
-    {
       return;
-    }
 
   child = g_file_new_for_path (sub->filename);
 
