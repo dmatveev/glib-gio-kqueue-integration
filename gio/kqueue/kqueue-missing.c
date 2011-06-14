@@ -1,3 +1,25 @@
+/*******************************************************************************
+  Copyright (c) 2011 Dmitry Matveev <me@dmitrymatveev.co.uk>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
+*******************************************************************************/
+
 #include <glib.h>
 
 #include "kqueue-helper.h"
@@ -18,6 +40,13 @@ G_GNUC_INTERNAL G_LOCK_DEFINE (missing_lock);
 static gboolean scan_missing_running = FALSE;
 static on_create_cb g_cb;
 
+
+/**
+ * Initialize the kqueue-missing module (optional).
+ *
+ * @param a callback function. It will be called when a watched file
+ *        will appear.
+ */
 void
 _km_init (on_create_cb cb)
 {
@@ -25,6 +54,11 @@ _km_init (on_create_cb cb)
 }
 
 
+/**
+ * Add a subscription to the missing files list.
+ *
+ * @param a subscription object to add.
+ */
 void
 _km_add_missing (kqueue_sub *sub)
 {
@@ -44,11 +78,19 @@ _km_add_missing (kqueue_sub *sub)
       scan_missing_running = TRUE;
       g_timeout_add_seconds (SCAN_MISSING_TIME, km_scan_missing, NULL);
     }
-
-  return TRUE;
 }
 
 
+/**
+ * The core missing files watching routine.
+ *
+ * Traverses through a list of missing files, tries to start watching each with
+ * kqueue, removes the appropriate entry and invokes a user callback if the file
+ * has appeared.
+ *
+ * @param unused.
+ * @return FALSE if no missing files left, TRUE otherwise.
+ */
 static gboolean
 km_scan_missing (gpointer user_data)
 {
@@ -59,9 +101,7 @@ km_scan_missing (gpointer user_data)
   G_LOCK (missing_lock);
 
   if (g_missing_subs)
-    {
-      KM_W ("we have a job");
-    }
+    KM_W ("we have a job");
 
   for (head = g_missing_subs; head; head = head->next)
     {
@@ -73,9 +113,7 @@ km_scan_missing (gpointer user_data)
         {
           KM_W ("file %s now exists, starting watching", sub->filename);
           if (g_cb)
-            {
-              g_cb (sub);
-            }
+            g_cb (sub);
           not_missing = g_slist_prepend (not_missing, head);
         }
     }
@@ -93,15 +131,18 @@ km_scan_missing (gpointer user_data)
       retval = FALSE;
     }
   else
-  {
     retval = TRUE;
-  }
 
   G_UNLOCK (missing_lock);
   return retval;
 }
 
 
+/**
+ * Remove a subscription from a list of missing files.
+ *
+ * @param a subscription object to remove
+ */
 void
 _km_remove (kqueue_sub *sub)
 {

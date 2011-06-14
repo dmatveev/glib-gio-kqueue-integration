@@ -17,6 +17,8 @@ libkqueue_la_SOURCES = 		\
 	kqueue-sub.h \
 	kqueue-missing.c \
 	kqueue-missing.h \
+	kqueue-utils.c \
+	kqueue-utils.h \
 	$(NULL)
 
 libkqueue_la_CFLAGS = \
