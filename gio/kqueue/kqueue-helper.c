@@ -39,12 +39,12 @@ static gboolean kh_debug_enabled = TRUE;
 
 G_GNUC_INTERNAL G_LOCK_DEFINE (kqueue_lock);
 
-static GHashTable *g_sub_hash = NULL;
+static GHashTable *subs_hash_table = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (hash_lock);
 
-int g_kqueue = -1;
-static int g_sockpair[] = {-1, -1};
-static pthread_t g_kqueue_thread;
+int kqueue_descriptor = -1;
+static int kqueue_socket_pair[] = {-1, -1};
+static pthread_t kqueue_thread;
 
 
 void _kh_file_appeared_cb (kqueue_sub *sub);
@@ -97,9 +97,9 @@ convert_kqueue_events_to_gio (uint32_t flags)
  * @returns TRUE.
  */
 static gboolean
-process_kqueue_notifications (GIOChannel  *gioc,
-                              GIOCondition cond,
-                              gpointer     data)
+process_kqueue_notifications (GIOChannel   *gioc,
+                              GIOCondition  cond,
+                              gpointer      data)
 {
   struct kqueue_notification n;
   kqueue_sub *sub = NULL;
@@ -108,23 +108,23 @@ process_kqueue_notifications (GIOChannel  *gioc,
   GFile *other = NULL;
   GFileMonitorEvent mask = 0;
   
-  g_assert (g_sockpair[0] != -1);
-  read (g_sockpair[0], &n, sizeof (struct kqueue_notification));
+  g_assert (kqueue_socket_pair[0] != -1);
+  read (kqueue_socket_pair[0], &n, sizeof (struct kqueue_notification));
 
-  sub = (kqueue_sub *) g_hash_table_lookup (g_sub_hash, GINT_TO_POINTER (n.fd));
+  sub = (kqueue_sub *) g_hash_table_lookup (subs_hash_table, GINT_TO_POINTER (n.fd));
   g_assert (sub != NULL);
 
-  monitor = G_FILE_MONITOR(sub->user_data);
+  monitor = G_FILE_MONITOR (sub->user_data);
   g_assert (monitor != NULL);
 
   child = g_file_new_for_path (sub->filename);
   other = NULL; /* No pair moves, always NULL */
 
   if (n.flags & (NOTE_DELETE | NOTE_REVOKE))
-  {
-    _km_add_missing (sub);
-    _kh_cancel_sub (sub);
-  }
+    {
+      _km_add_missing (sub);
+      _kh_cancel_sub (sub);
+    }
   mask  = convert_kqueue_events_to_gio (n.flags);
 
   g_file_monitor_emit_event (monitor, child, other, mask);
@@ -144,26 +144,26 @@ _kh_startup_impl (gpointer unused)
   GIOChannel *channel = NULL;
   gboolean result = FALSE;
 
-  g_kqueue = kqueue();
-  result = (-1 != g_kqueue);
+  kqueue_descriptor = kqueue ();
+  result = (kqueue_descriptor != -1);
   if (!result)
     {
       KH_W ("Failed to initialize kqueue\n!");
       return GINT_TO_POINTER (FALSE);
     }
 
-  result = (0 == socketpair (AF_UNIX, SOCK_STREAM, 0, g_sockpair));
-  if (!result)
+  result = socketpair (AF_UNIX, SOCK_STREAM, 0, kqueue_socket_pair);
+  if (result != 0)
     {
       KH_W ("Failed to create socket pair\n!");
       return GINT_TO_POINTER (FALSE) ;
     }
 
-  result = (0 == pthread_create (&g_kqueue_thread,
-                                 NULL,
-                                 _kqueue_thread_func,
-                                 &g_sockpair[1]));
-  if (!result)
+  result = pthread_create (&kqueue_thread,
+                           NULL,
+                           _kqueue_thread_func,
+                           &kqueue_socket_pair[1]);
+  if (result != 0)
     {
       KH_W ("Failed to run kqueue thread\n!");
       return GINT_TO_POINTER (FALSE);
@@ -171,10 +171,10 @@ _kh_startup_impl (gpointer unused)
 
   _km_init (_kh_file_appeared_cb);
 
-  channel = g_io_channel_unix_new (g_sockpair[0]);
+  channel = g_io_channel_unix_new (kqueue_socket_pair[0]);
   g_io_add_watch (channel, G_IO_IN, process_kqueue_notifications, NULL);
 
-  g_sub_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
+  subs_hash_table = g_hash_table_new (g_direct_hash, g_direct_equal);
 
   KH_W ("started gio kqueue backend\n");
   return GINT_TO_POINTER (TRUE);
@@ -204,7 +204,7 @@ _kh_startup (void)
 gboolean
 _kh_start_watching (kqueue_sub *sub)
 {
-  g_assert (g_sockpair[0] != -1);
+  g_assert (kqueue_socket_pair[0] != -1);
   g_assert (sub != NULL);
   g_assert (sub->filename != NULL);
 
@@ -218,13 +218,13 @@ _kh_start_watching (kqueue_sub *sub)
     }
 
   G_LOCK (hash_lock);
-  g_hash_table_insert (g_sub_hash, GINT_TO_POINTER(sub->fd), sub);
+  g_hash_table_insert (subs_hash_table, GINT_TO_POINTER (sub->fd), sub);
   G_UNLOCK (hash_lock);
 
   _kqueue_thread_push_fd (sub->fd);
   
   /* Bump the kqueue thread. It will pick up a new sub entry to monitor */
-  write(g_sockpair[0], "A", 1);
+  write (kqueue_socket_pair[0], "A", 1);
   return TRUE;
 }
 
@@ -262,11 +262,11 @@ gboolean
 _kh_cancel_sub (kqueue_sub *sub)
 {
   gboolean missing = FALSE;
-  g_assert (g_sockpair[0] != -1);
+  g_assert (kqueue_socket_pair[0] != -1);
   g_assert (sub != NULL);
 
   G_LOCK (hash_lock);
-  missing = !g_hash_table_remove (g_sub_hash, GINT_TO_POINTER(sub->fd));
+  missing = !g_hash_table_remove (subs_hash_table, GINT_TO_POINTER (sub->fd));
   G_UNLOCK (hash_lock);
 
   if (missing)
@@ -282,7 +282,7 @@ _kh_cancel_sub (kqueue_sub *sub)
       _kqueue_thread_remove_fd (sub->fd);
 
       /* Bump the kqueue thread. It will pick up a new sub entry to remove*/
-      write(g_sockpair[0], "R", 1);
+      write (kqueue_socket_pair[0], "R", 1);
     }
 
   return TRUE;
@@ -306,7 +306,7 @@ _kh_file_appeared_cb (kqueue_sub *sub)
   g_assert (sub->filename);
 
   if (!g_file_test (sub->filename, G_FILE_TEST_EXISTS))
-      return;
+    return;
 
   child = g_file_new_for_path (sub->filename);
 
