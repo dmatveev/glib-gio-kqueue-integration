@@ -108,7 +108,7 @@ process_kqueue_notifications (GIOChannel  *gioc,
   GFile *other = NULL;
   GFileMonitorEvent mask = 0;
   
-  g_assert (g_sockpair[0] != NULL);
+  g_assert (g_sockpair[0] != -1);
   read (g_sockpair[0], &n, sizeof (struct kqueue_notification));
 
   sub = (kqueue_sub *) g_hash_table_lookup (g_sub_hash, GINT_TO_POINTER (n.fd));
@@ -133,45 +133,30 @@ process_kqueue_notifications (GIOChannel  *gioc,
 
 
 /**
- * Kqueue backend initialization.
+ * Kqueue backend startup code. Should be called only once.
  *
+ * @param unused.
  * @returns TRUE on success, FALSE otherwise.
  */
-gboolean
-_kh_startup (void)
+static gpointer
+_kh_startup_impl (gpointer unused)
 {
-  static gboolean initialized = FALSE;
-  static gboolean result = FALSE;
-
-  GIOChannel *channel;
-
-  if (initialized == TRUE)
-    return result;
-
-  G_LOCK (kqueue_lock);
-
-  if (initialized == TRUE)
-    {
-      /* it was a double-checked locking */
-      G_UNLOCK (kqueue_lock);
-      return result;
-    }
+  GIOChannel *channel = NULL;
+  gboolean result = FALSE;
 
   g_kqueue = kqueue();
   result = (-1 != g_kqueue);
   if (!result)
     {
-      G_UNLOCK (kqueue_lock);
       KH_W ("Failed to initialize kqueue\n!");
-      return FALSE;
+      return GINT_TO_POINTER (FALSE);
     }
 
-  result = (0 == socketpair(AF_UNIX, SOCK_STREAM, 0, g_sockpair));
+  result = (0 == socketpair (AF_UNIX, SOCK_STREAM, 0, g_sockpair));
   if (!result)
     {
-      G_UNLOCK (kqueue_lock);
       KH_W ("Failed to create socket pair\n!");
-      return FALSE;
+      return GINT_TO_POINTER (FALSE) ;
     }
 
   result = (0 == pthread_create (&g_kqueue_thread,
@@ -180,9 +165,8 @@ _kh_startup (void)
                                  &g_sockpair[1]));
   if (!result)
     {
-      G_UNLOCK (kqueue_lock);
       KH_W ("Failed to run kqueue thread\n!");
-      return FALSE;
+      return GINT_TO_POINTER (FALSE);
     }
 
   _km_init (_kh_file_appeared_cb);
@@ -193,11 +177,21 @@ _kh_startup (void)
   g_sub_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
 
   KH_W ("started gio kqueue backend\n");
-  initialized = TRUE;
+  return GINT_TO_POINTER (TRUE);
+}
 
-  G_UNLOCK (kqueue_lock);
 
-  return TRUE;
+/**
+ * Kqueue backend initialization.
+ *
+ * @returns TRUE on success, FALSE otherwise.
+ */
+gboolean
+_kh_startup (void)
+{
+  static GOnce init_once = G_ONCE_INIT;
+  g_once (&init_once, _kh_startup_impl, NULL);
+  return GPOINTER_TO_INT (init_once.retval);
 }
 
 
@@ -306,7 +300,6 @@ _kh_cancel_sub (kqueue_sub *sub)
 void
 _kh_file_appeared_cb (kqueue_sub *sub)
 {
-  GFileMonitorEvent eflags;
   GFile* child;
 
   g_assert (sub != NULL);
