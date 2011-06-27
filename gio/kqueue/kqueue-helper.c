@@ -58,26 +58,19 @@ void _kh_file_appeared_cb (kqueue_sub *sub);
 static GFileMonitorEvent
 convert_kqueue_events_to_gio (uint32_t flags)
 {
-  static struct {
-    uint32_t kqueue_code;
-    GFileMonitorEvent gio_code;
-  } translations[] = {
-    {NOTE_DELETE, G_FILE_MONITOR_EVENT_DELETED},
-    {NOTE_ATTRIB, G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED},
-    {NOTE_WRITE,  G_FILE_MONITOR_EVENT_CHANGED},
-    {NOTE_EXTEND, G_FILE_MONITOR_EVENT_CHANGED},
-    {NOTE_RENAME, G_FILE_MONITOR_EVENT_MOVED}
-  };
+  GFileMonitorEvent result = 0;
+
   /* TODO: The following notifications should be emulated, if possible:
    *   G_FILE_MONITOR_EVENT_PRE_UNMOUNT
    *   G_FILE_MONITOR_EVENT_UNMOUNTED */
-  
-  GFileMonitorEvent result = 0;
-  int i;
-
-  for (i = 0; i < sizeof (translations) / sizeof (translations[0]); i++)
-      if (flags & translations[i].kqueue_code)
-        result |= translations[i].gio_code;
+  if (flags & NOTE_DELETE)
+    result |= G_FILE_MONITOR_EVENT_DELETED;
+  if (flags & NOTE_ATTRIB)
+    result |= G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED;
+  if (flags & (NOTE_WRITE | NOTE_EXTEND))
+    result |= G_FILE_MONITOR_EVENT_CHANGED;
+  if (flags & NOTE_RENAME)
+    result |= G_FILE_MONITOR_EVENT_MOVED;
 
   return result;
 }
