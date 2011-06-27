@@ -33,11 +33,8 @@
 static gboolean kt_debug_enabled = TRUE;
 #define KT_W if (kt_debug_enabled) g_warning
 
-static GSList *pick_up_fds_list = NULL;
-G_GNUC_INTERNAL G_LOCK_DEFINE (pick_up_lock);
-
-static GSList *remove_fds_list = NULL;
-G_GNUC_INTERNAL G_LOCK_DEFINE (remove_lock);
+static GAsyncQueue *pick_up_fds_queue = NULL;
+static GAsyncQueue *remove_fds_queue = NULL;
 
 
 /* GIO does not have analogues for NOTE_LINK and(?) NOTE_REVOKE, so
@@ -47,6 +44,16 @@ const uint32_t KQUEUE_VNODE_FLAGS =
 
 /* TODO: Probably it would be better to pass it as a thread param? */
 extern int kqueue_descriptor;
+
+
+/**
+ * Initialize the associated data. Must be called only once.
+ */
+void _kqueue_thread_init ()
+{
+  pick_up_fds_queue = g_async_queue_new ();
+  remove_fds_queue  = g_async_queue_new ();
+}
 
 
 /**
@@ -64,29 +71,25 @@ static void
 _kqueue_thread_collect_fds (kevents *events)
 {
   g_assert (events != NULL);
+  g_assert (pick_up_fds_queue != NULL);
 
-  G_LOCK (pick_up_lock);
-  if (pick_up_fds_list)
+  int fd = -1;
+  g_async_queue_lock (pick_up_fds_queue);
+  while ((fd = GPOINTER_TO_INT (g_async_queue_try_pop_unlocked (pick_up_fds_queue))))
     {
-      GSList *head = pick_up_fds_list;
-      guint count = g_slist_length (pick_up_fds_list);
-      kevents_extend_sz (events, count);
-      while (head)
-        {
-          struct kevent *pevent = &events->memory[events->kq_size++];
-          EV_SET (pevent,
-                  GPOINTER_TO_INT (head->data),
-                  EVFILT_VNODE,
-                  EV_ADD | EV_ENABLE | EV_ONESHOT,
-                  KQUEUE_VNODE_FLAGS,
-                  0,
-                  0);
-          head = head->next;
-        }
-      g_slist_free (pick_up_fds_list);
-      pick_up_fds_list = NULL;
+      struct kevent *pevent = NULL;
+      kevents_extend_sz (events, 1);
+
+      pevent = &events->memory[events->kq_size++];
+      EV_SET (pevent,
+              GPOINTER_TO_INT (fd),
+              EVFILT_VNODE,
+              EV_ADD | EV_ENABLE | EV_ONESHOT,
+              KQUEUE_VNODE_FLAGS,
+              0,
+              0);
     }
-  G_UNLOCK (pick_up_lock);
+  g_async_queue_unlock (pick_up_fds_queue);
 }
 
 
@@ -105,35 +108,42 @@ static void
 _kqueue_thread_cleanup_fds (kevents *events)
 {
   g_assert (events != NULL);
+  g_assert (remove_fds_queue != NULL);
 
-  G_LOCK (remove_lock);
-  if (remove_fds_list)
+  GHashTable *remove_fds = NULL;
+  int i, j, fetched = 0;
+
+  remove_fds = g_hash_table_new (g_direct_hash, g_direct_equal);
+
+  g_async_queue_lock (remove_fds_queue);
     {
-      size_t oldsize = events->kq_size;
-      size_t newsize = oldsize - g_slist_length (remove_fds_list);
-      int i, j;
+      int fd = -1;
+      while ((fd = GPOINTER_TO_INT (g_async_queue_try_pop_unlocked (remove_fds_queue))))
+        {
+          g_hash_table_insert (remove_fds, GINT_TO_POINTER (fd), GINT_TO_POINTER (TRUE));
+          ++fetched;
+        }
+    }
+  g_async_queue_unlock (remove_fds_queue);
 
-      if (newsize < 1)
-          newsize = 1;
-
-      for (i = 1, j = 1; i < oldsize; i++)
+  if (fetched != 0)
+    {
+      for (i = 1, j = 1; i < events->kq_size; i++)
         {
           int fd = events->memory[i].ident;
-          GSList *elem = g_slist_find (remove_fds_list, GINT_TO_POINTER (fd));
-          if (elem == NULL)
+          if (g_hash_table_lookup (remove_fds, GINT_TO_POINTER (fd)) != NULL)
             {
               if (j != i)
-                  events->memory[j++] = events->memory[i];
+                events->memory[j++] = events->memory[i];
             }
           else
-              close (fd);
+            close (fd);
         }
       events->kq_size = j;
       kevents_reduce (events);
-      g_slist_free (remove_fds_list);
-      remove_fds_list = NULL;
     }
-  G_UNLOCK (remove_lock);
+
+  g_hash_table_unref (remove_fds);
 }
 
 
@@ -231,9 +241,10 @@ _kqueue_thread_func (void *arg)
 void
 _kqueue_thread_push_fd (int fd)
 {
-  G_LOCK (pick_up_lock);
-  pick_up_fds_list = g_slist_prepend (pick_up_fds_list, GINT_TO_POINTER (fd));
-  G_UNLOCK (pick_up_lock);
+  g_assert (pick_up_fds_queue != NULL);
+  g_async_queue_ref (pick_up_fds_queue);
+  g_async_queue_push (pick_up_fds_queue, GINT_TO_POINTER (fd));
+  g_async_queue_unref (pick_up_fds_queue);
 }
 
 
@@ -250,7 +261,8 @@ _kqueue_thread_push_fd (int fd)
 void
 _kqueue_thread_remove_fd (int fd)
 {
-  G_LOCK (remove_lock);
-  remove_fds_list = g_slist_prepend (remove_fds_list, GINT_TO_POINTER (fd));
-  G_UNLOCK (remove_lock);
+  g_assert (remove_fds_queue != NULL);
+  g_async_queue_ref (remove_fds_queue);
+  g_async_queue_push (remove_fds_queue, GINT_TO_POINTER (fd));
+  g_async_queue_unref (remove_fds_queue);
 }
