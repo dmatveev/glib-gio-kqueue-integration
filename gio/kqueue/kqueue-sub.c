@@ -43,7 +43,7 @@ _kh_sub_new (const gchar *filename,
 {
   kqueue_sub *sub = NULL;
   
-  sub = g_new0 (kqueue_sub, 1);
+  sub = g_slice_new (kqueue_sub);
   sub->filename = g_strdup (filename);
   sub->pair_moves = pair_moves;
   sub->user_data = user_data;
@@ -66,5 +66,5 @@ void
 _kh_sub_free (kqueue_sub *sub)
 {
   g_free (sub->filename);
-  g_free (sub);
+  g_slice_free (kqueue_sub, sub);
 }
