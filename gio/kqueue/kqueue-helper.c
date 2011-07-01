@@ -152,7 +152,6 @@ _kh_startup_impl (gpointer unused)
       return GINT_TO_POINTER (FALSE) ;
     }
 
-  _kqueue_thread_init ();
   result = pthread_create (&kqueue_thread,
                            NULL,
                            _kqueue_thread_func,
