@@ -33,7 +33,7 @@
 static gboolean kt_debug_enabled = TRUE;
 #define KT_W if (kt_debug_enabled) g_warning
 
-static GSList *pick_up_fds_list = NULL;
+static GQueue pick_up_fds_queue = G_QUEUE_INIT;
 G_GNUC_INTERNAL G_LOCK_DEFINE (pick_up_lock);
 
 static GSList *remove_fds_list = NULL;
@@ -64,27 +64,25 @@ static void
 _kqueue_thread_collect_fds (kevents *events)
 {
   g_assert (events != NULL);
+  gint length = 0;
 
   G_LOCK (pick_up_lock);
-  if (pick_up_fds_list)
+  if ((length = g_queue_get_length (&pick_up_fds_queue)) != 0)
     {
-      GSList *head = pick_up_fds_list;
-      guint count = g_slist_length (pick_up_fds_list);
-      kevents_extend_sz (events, count);
-      while (head)
+      gpointer fdp = NULL;
+      kevents_extend_sz (events, length);
+
+      while ((fdp = g_queue_pop_head (&pick_up_fds_queue)) != NULL)
         {
           struct kevent *pevent = &events->memory[events->kq_size++];
           EV_SET (pevent,
-                  GPOINTER_TO_INT (head->data),
+                  GPOINTER_TO_INT (fdp),
                   EVFILT_VNODE,
                   EV_ADD | EV_ENABLE | EV_ONESHOT,
                   KQUEUE_VNODE_FLAGS,
                   0,
                   0);
-          head = head->next;
         }
-      g_slist_free (pick_up_fds_list);
-      pick_up_fds_list = NULL;
     }
   G_UNLOCK (pick_up_lock);
 }
@@ -110,11 +108,7 @@ _kqueue_thread_cleanup_fds (kevents *events)
   if (remove_fds_list)
     {
       size_t oldsize = events->kq_size;
-      size_t newsize = oldsize - g_slist_length (remove_fds_list);
       int i, j;
-
-      if (newsize < 1)
-          newsize = 1;
 
       for (i = 1, j = 1; i < oldsize; i++)
         {
@@ -232,7 +226,7 @@ void
 _kqueue_thread_push_fd (int fd)
 {
   G_LOCK (pick_up_lock);
-  pick_up_fds_list = g_slist_prepend (pick_up_fds_list, GINT_TO_POINTER (fd));
+  g_queue_push_tail (&pick_up_fds_queue, GINT_TO_POINTER (fd));
   G_UNLOCK (pick_up_lock);
 }
 
