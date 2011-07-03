@@ -46,12 +46,11 @@ static void
 g_kqueue_file_monitor_finalize (GObject *object)
 {
   GKqueueFileMonitor *kqueue_monitor = G_KQUEUE_FILE_MONITOR (object);
-  kqueue_sub *sub = kqueue_monitor->sub;
 
-  if (sub)
+  if (kqueue_monitor->sub)
     {
-      _kh_cancel_sub (sub);
-      _kh_sub_free (sub);
+      _kh_cancel_sub (kqueue_monitor->sub);
+      _kh_sub_free (kqueue_monitor->sub);
       kqueue_monitor->sub = NULL;
     }
 
@@ -130,12 +129,11 @@ static gboolean
 g_kqueue_file_monitor_cancel (GFileMonitor *monitor)
 {
   GKqueueFileMonitor *kqueue_monitor = G_KQUEUE_FILE_MONITOR (monitor);
-  kqueue_sub *sub = kqueue_monitor->sub;
 
-  if (sub)
+  if (kqueue_monitor->sub)
     {
-      _kh_cancel_sub (sub);
-      _kh_sub_free (sub);
+      _kh_cancel_sub (kqueue_monitor->sub);
+      _kh_sub_free (kqueue_monitor->sub);
       kqueue_monitor->sub = NULL;
     }
 
