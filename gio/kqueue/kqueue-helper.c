@@ -50,11 +50,13 @@ static pthread_t kqueue_thread;
 void _kh_file_appeared_cb (kqueue_sub *sub);
 
 /**
- * Translate kqueue filter flags into GIO event flags.
+ * convert_kqueue_events_to_gio:
+ * @flags: a set of kqueue filter flags
  *
- * @param a set of kqueue filter flags.
- * @returns a set of GIO flags.
- */
+ * Translates kqueue filter flags into GIO event flags.
+ *
+ * Returns: a set of GIO flags (see #GFileMonitorEvent)
+ **/
 static GFileMonitorEvent
 convert_kqueue_events_to_gio (uint32_t flags)
 {
@@ -77,18 +79,20 @@ convert_kqueue_events_to_gio (uint32_t flags)
 
 
 /**
- * Process notifications, coming from the kqueue thread.
+ * process_kqueue_notifications:
+ * @gioc: unused.
+ * @cond: unused.
+ * @data: unused.
+ *
+ * Processes notifications, coming from the kqueue thread.
  *
  * Reads notifications from the command file descriptor, emits the
  * "changed" event on the appropriate monitor.
  *
  * A typical GIO Channel callback function.
  *
- * @param unused.
- * @param unused.
- * @param unused.
- * @returns TRUE.
- */
+ * Returns: %TRUE.
+ **/
 static gboolean
 process_kqueue_notifications (GIOChannel   *gioc,
                               GIOCondition  cond,
@@ -126,11 +130,13 @@ process_kqueue_notifications (GIOChannel   *gioc,
 
 
 /**
+ * _kh_startup_impl:
+ * @unused: unused
+ *
  * Kqueue backend startup code. Should be called only once.
  *
- * @param unused.
- * @returns TRUE on success, FALSE otherwise.
- */
+ * Returns: %TRUE on success, %FALSE otherwise.
+ **/
 static gpointer
 _kh_startup_impl (gpointer unused)
 {
@@ -175,10 +181,11 @@ _kh_startup_impl (gpointer unused)
 
 
 /**
+ * _kh_startup:
  * Kqueue backend initialization.
  *
- * @returns TRUE on success, FALSE otherwise.
- */
+ * Returns: %TRUE on success, %FALSE otherwise.
+ **/
 gboolean
 _kh_startup (void)
 {
@@ -189,11 +196,13 @@ _kh_startup (void)
 
 
 /**
- * Start watching a subscription.
+ * _kh_start_watching:
+ * @sub: a #kqueue_sub
  *
- * @param a subscription to monitor.
- * @returns TRUE on success, FALSE otherwise.
- */
+ * Starts watching on a subscription.
+ *
+ * Returns: %TRUE on success, %FALSE otherwise.
+ **/
 gboolean
 _kh_start_watching (kqueue_sub *sub)
 {
@@ -223,16 +232,18 @@ _kh_start_watching (kqueue_sub *sub)
 
 
 /**
- * Add a subscription for monitoring.
+ * _kh_add_sub:
+ * @sub: a #kqueue_sub
+ *
+ * Adds a subscription for monitoring.
  *
  * This funciton tries to start watching a subscription with
  * _kh_start_watching(). On failure, i.e. when a file does not exist yet,
  * the subscription will be added to a list of missing files to continue
  * watching when the file will appear.
  *
- * @param a subscription to monitor.
- * @returns TRUE.
- */
+ * Returns: %TRUE
+ **/
 gboolean
 _kh_add_sub (kqueue_sub *sub)
 {
@@ -246,11 +257,13 @@ _kh_add_sub (kqueue_sub *sub)
 
 
 /**
- * Stop monitoring a subscription.
+ * _kh_cancel_sub:
+ * @sub a #kqueue_sub
  *
- * @param a subscription.
- * @returns TRUE.
- */
+ * Stops monitoring on a subscription.
+ *
+ * Returns: %TRUE
+ **/
 gboolean
 _kh_cancel_sub (kqueue_sub *sub)
 {
@@ -283,13 +296,14 @@ _kh_cancel_sub (kqueue_sub *sub)
 
 
 /**
+ * _kh_file_appeared_cb:
+ * @sub: a #kqueue_sub
+ *
  * A callback function for kqueue-missing subsystem.
  *
  * Signals that a missing file has finally appeared in the filesystem.
- * Emits G_FILE_MONITOR_EVENT_CREATED.
- *
- * @param a subscription.
- */
+ * Emits %G_FILE_MONITOR_EVENT_CREATED.
+ **/
 void
 _kh_file_appeared_cb (kqueue_sub *sub)
 {

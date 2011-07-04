@@ -50,16 +50,14 @@ extern int kqueue_descriptor;
 
 
 /**
- * Pick up new file descriptors for monitoring.
+ * _kqueue_thread_collect_fds:
+ * @events: a #kevents - the list of events to monitor. Will be extended
+ *     with new items.
  *
- * This function will pick up file descriptors from a global list
- * for monitoring. The list will be freed then.
+ * Picks up new file descriptors for monitoring from a global queue.
  *
  * To add new items to the list, use _kqueue_thread_push_fd().
- *
- * @param A list of events to monitor. Will be extended with
- *        new items.
- */
+ **/
 static void
 _kqueue_thread_collect_fds (kevents *events)
 {
@@ -89,16 +87,18 @@ _kqueue_thread_collect_fds (kevents *events)
 
 
 /**
- * Remove file descriptors from monitoring.
+ * _kqueue_thread_cleanup_fds:
+ * @events: a #kevents -- list of events to monitor. Cancelled
+ *     subscriptions will be removed from it, and its size
+ *     probably will be reduced.
+ *
+ * Removes file descriptors from monitoring.
  *
  * This function will pick up file descriptors from a global list
  * to cancel monitoring on them. The list will be freed then.
  *
  * To add new items to the list, use _kqueue_thread_remove_fd().
- *
- * @param A list of events to monitor. Cancelled subscriptions will be
- *        removed from it, and its size probably will be reduced.
- */
+ **/
 static void
 _kqueue_thread_cleanup_fds (kevents *events)
 {
@@ -132,24 +132,31 @@ _kqueue_thread_cleanup_fds (kevents *events)
 
 
 /**
- * The core kqueue monitoring routine.
+ * _kqueue_thread_func:
+ * @arg: a pointer to int -- control file descriptor.
  *
  * The thread communicates with the outside world through a so-called
  * command file descriptor. The thread reads control commands from it
  * and writes the notifications into it.
  *
  * Control commands are single-byte characters:
+ * <itemizedlist>
+ * <listitem>
  *   'A' - pick up new file descriptors to monitor
+ * </listitem>
+ * <listitem>
  *   'R' - remove some descriptors from monitoring.
- * For details, @see _kqueue_thread_collect_fds() and
+ * </listitem>
+ * </itemizedlist>
+ *
+ * For details, see _kqueue_thread_collect_fds() and
  * _kqueue_thread_cleanup_fds().
  *
  * Notifications, that thread writes into the command file descriptor,
- * are represented with \struct kqueue_notification objects.
+ * are represented with #kqueue_notification objects.
  *
- * @param A pointer to int, the command file descriptor.
- * @returns NULL.
- */
+ * Returns: %NULL
+ **/
 void*
 _kqueue_thread_func (void *arg)
 {
@@ -214,14 +221,15 @@ _kqueue_thread_func (void *arg)
 
 
 /**
- * Put a new file descriptor into the pick up list for monitroing.
+ * _kqueue_thread_push_fd:
+ * @fd: a file descriptor
+ *
+ * Puts a new file descriptor into the pick up list for monitroing.
  *
  * The kqueue thread will not start monitoring on it immediately, it
  * should be bumped via its command file descriptor manually.
- * @see kqueue_thread() and _kqueue_thread_collect_fds() for details.
- *
- * @param A file descriptor to put.
- */
+ * See kqueue_thread() and _kqueue_thread_collect_fds() for details.
+ **/
 void
 _kqueue_thread_push_fd (int fd)
 {
@@ -232,15 +240,16 @@ _kqueue_thread_push_fd (int fd)
 
 
 /**
- * Put a new file descriptor into the remove list to cancel monitoring
+ * _kqueue_thread_remove_fd:
+ * @fd: a file descriptor
+ *
+ * Puts a new file descriptor into the remove list to cancel monitoring
  * on it.
  *
  * The kqueue thread will not stop monitoring on it immediately, it
  * should be bumped via its command file descriptor manually.
- * @see kqueue_thread() and _kqueue_thread_collect_fds() for details.
- *
- * @param A file descriptor to remove.
- */
+ * See kqueue_thread() and _kqueue_thread_collect_fds() for details.
+ **/
 void
 _kqueue_thread_remove_fd (int fd)
 {

@@ -42,11 +42,12 @@ static on_create_cb file_appeared_callback;
 
 
 /**
- * Initialize the kqueue-missing module (optional).
+ * _km_init:
+ * @cb: a callback function. It will be called when a watched file
+ *     will appear.
  *
- * @param a callback function. It will be called when a watched file
- *        will appear.
- */
+ * Initialize the kqueue-missing module (optional).
+ **/
 void
 _km_init (on_create_cb cb)
 {
@@ -55,10 +56,11 @@ _km_init (on_create_cb cb)
 
 
 /**
- * Add a subscription to the missing files list.
+ * _km_add_missing:
+ * @sub: a #kqueue_sub
  *
- * @param a subscription object to add.
- */
+ * Adds a subscription to the missing files list.
+ **/
 void
 _km_add_missing (kqueue_sub *sub)
 {
@@ -82,15 +84,17 @@ _km_add_missing (kqueue_sub *sub)
 
 
 /**
+ * km_scan_missing:
+ * @user_data: unused
+ *
  * The core missing files watching routine.
  *
  * Traverses through a list of missing files, tries to start watching each with
  * kqueue, removes the appropriate entry and invokes a user callback if the file
  * has appeared.
  *
- * @param unused.
- * @return FALSE if no missing files left, TRUE otherwise.
- */
+ * Returns: %FALSE if no missing files left, %TRUE otherwise.
+ **/
 static gboolean
 km_scan_missing (gpointer user_data)
 {
@@ -139,10 +143,11 @@ km_scan_missing (gpointer user_data)
 
 
 /**
- * Remove a subscription from a list of missing files.
+ * _km_remove:
+ * @sub: a #kqueue_sub
  *
- * @param a subscription object to remove
- */
+ * Removes a subscription from a list of missing files.
+ **/
 void
 _km_remove (kqueue_sub *sub)
 {
