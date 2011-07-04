@@ -43,9 +43,9 @@ _kh_sub_new (const gchar *filename,
              gboolean     pair_moves,
              gpointer     user_data)
 {
-  kqueue_sub *sub = NULL;
+  kqueue_sub *sub = g_slice_new (kqueue_sub);
+  g_assert (sub != NULL);
   
-  sub = g_slice_new (kqueue_sub);
   sub->filename = g_strdup (filename);
   sub->pair_moves = pair_moves;
   sub->user_data = user_data;

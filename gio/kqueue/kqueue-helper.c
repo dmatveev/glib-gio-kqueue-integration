@@ -29,6 +29,7 @@
 #include <gio/gfile.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <pthread.h>
 #include "kqueue-helper.h"
 #include "kqueue-thread.h"
@@ -91,7 +92,7 @@ convert_kqueue_events_to_gio (uint32_t flags)
  *
  * A typical GIO Channel callback function.
  *
- * Returns: %TRUE.
+ * Returns: %TRUE
  **/
 static gboolean
 process_kqueue_notifications (GIOChannel   *gioc,
@@ -106,7 +107,11 @@ process_kqueue_notifications (GIOChannel   *gioc,
   GFileMonitorEvent mask = 0;
   
   g_assert (kqueue_socket_pair[0] != -1);
-  read (kqueue_socket_pair[0], &n, sizeof (struct kqueue_notification));
+  if (read (kqueue_socket_pair[0], &n, sizeof (struct kqueue_notification)) == -1)
+    {
+      KH_W ("Failed to read a kqueue notification, error %d", errno);
+      return TRUE;
+    }
 
   sub = (kqueue_sub *) g_hash_table_lookup (subs_hash_table, GINT_TO_POINTER (n.fd));
   g_assert (sub != NULL);
@@ -122,7 +127,7 @@ process_kqueue_notifications (GIOChannel   *gioc,
       _km_add_missing (sub);
       _kh_cancel_sub (sub);
     }
-  mask  = convert_kqueue_events_to_gio (n.flags);
+  mask = convert_kqueue_events_to_gio (n.flags);
 
   g_file_monitor_emit_event (monitor, child, other, mask);
   return TRUE;
@@ -215,7 +220,7 @@ _kh_start_watching (kqueue_sub *sub)
 
   if (sub->fd == -1)
     {
-      KH_W ("failed to open file %s\n", sub->filename);
+      KH_W ("failed to open file %s (error %d)", sub->filename, errno);
       return FALSE;
     }
 
@@ -226,7 +231,8 @@ _kh_start_watching (kqueue_sub *sub)
   _kqueue_thread_push_fd (sub->fd);
   
   /* Bump the kqueue thread. It will pick up a new sub entry to monitor */
-  write (kqueue_socket_pair[0], "A", 1);
+  if (write (kqueue_socket_pair[0], "A", 1) == -1)
+    KH_W ("Failed to bump the kqueue thread (add fd, error %d)", errno);
   return TRUE;
 }
 
@@ -288,7 +294,8 @@ _kh_cancel_sub (kqueue_sub *sub)
       _kqueue_thread_remove_fd (sub->fd);
 
       /* Bump the kqueue thread. It will pick up a new sub entry to remove*/
-      write (kqueue_socket_pair[0], "R", 1);
+      if (write (kqueue_socket_pair[0], "R", 1) == -1)
+        KH_W ("Failed to bump the kqueue thread (remove fd, error %d)", errno);
     }
 
   return TRUE;

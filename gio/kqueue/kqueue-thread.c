@@ -24,6 +24,7 @@
 #include <sys/event.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <errno.h>
 #include <glib.h>
 
 #include "kqueue-thread.h"
@@ -117,10 +118,10 @@ _kqueue_thread_cleanup_fds (kevents *events)
           if (elem == NULL)
             {
               if (j != i)
-                  events->memory[j++] = events->memory[i];
+                events->memory[j++] = events->memory[i];
             }
-          else
-              close (fd);
+          else if (close (fd) == -1)
+            KT_W ("Failed to close fd %d, error %d", fd, errno);
         }
       events->kq_size = j;
       kevents_reduce (events);
@@ -162,6 +163,8 @@ _kqueue_thread_func (void *arg)
 {
   int fd;
   kevents waiting;
+
+  g_assert (arg != NULL);
   kevents_init_sz (&waiting, 1);
 
   fd = *(int *) arg;
@@ -189,22 +192,27 @@ _kqueue_thread_func (void *arg)
      * high filesystem activity on each. */
      
     struct kevent received;
+    KT_W ("Wathing for %d items", waiting.kq_size);
     int ret = kevent (kqueue_descriptor, waiting.memory, waiting.kq_size, &received, 1, NULL);
 
     if (ret == -1)
       {
-        KT_W ("kevent failed\n");
+        KT_W ("kevent failed");
         continue;
       }
 
     if (received.ident == fd)
       {
         char c;
-        read (fd, &c, 1);
+        if (read (fd, &c, 1) == -1)
+          {
+            KT_W ("Failed to read command, error %d", errno);
+            continue;
+          }
         if (c == 'A')
-            _kqueue_thread_collect_fds (&waiting);
+          _kqueue_thread_collect_fds (&waiting);
         else if (c == 'R')
-            _kqueue_thread_cleanup_fds (&waiting);
+          _kqueue_thread_cleanup_fds (&waiting);
       }
     else if (!(received.fflags & EV_ERROR))
       {
@@ -212,7 +220,8 @@ _kqueue_thread_func (void *arg)
         kn.fd = received.ident;
         kn.flags = received.fflags;
 
-        write (fd, &kn, sizeof (struct kqueue_notification));
+        if (write (fd, &kn, sizeof (struct kqueue_notification)) == -1)
+          KT_W ("Failed to write a kqueue notification, error %d", errno);
       }
   }
   kevents_free (&waiting);
