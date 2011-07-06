@@ -32,6 +32,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include "kqueue-helper.h"
+#include "kqueue-utils.h"
 #include "kqueue-thread.h"
 #include "kqueue-missing.h"
 
@@ -107,7 +108,7 @@ process_kqueue_notifications (GIOChannel   *gioc,
   GFileMonitorEvent mask = 0;
   
   g_assert (kqueue_socket_pair[0] != -1);
-  if (read (kqueue_socket_pair[0], &n, sizeof (struct kqueue_notification)) == -1)
+  if (!_ku_read (kqueue_socket_pair[0], &n, sizeof (struct kqueue_notification)))
     {
       KH_W ("Failed to read a kqueue notification, error %d", errno);
       return TRUE;
@@ -231,7 +232,7 @@ _kh_start_watching (kqueue_sub *sub)
   _kqueue_thread_push_fd (sub->fd);
   
   /* Bump the kqueue thread. It will pick up a new sub entry to monitor */
-  if (write (kqueue_socket_pair[0], "A", 1) == -1)
+  if (!_ku_write (kqueue_socket_pair[0], "A", 1))
     KH_W ("Failed to bump the kqueue thread (add fd, error %d)", errno);
   return TRUE;
 }
@@ -294,7 +295,7 @@ _kh_cancel_sub (kqueue_sub *sub)
       _kqueue_thread_remove_fd (sub->fd);
 
       /* Bump the kqueue thread. It will pick up a new sub entry to remove*/
-      if (write (kqueue_socket_pair[0], "R", 1) == -1)
+      if (!_ku_write (kqueue_socket_pair[0], "R", 1))
         KH_W ("Failed to bump the kqueue thread (remove fd, error %d)", errno);
     }
 
