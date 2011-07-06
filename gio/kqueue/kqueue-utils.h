@@ -23,6 +23,14 @@
 #ifndef __KQUEUE_UTILS_H
 #define __KQUEUE_UTILS_H
 
+/**
+ * kqueue_notification:
+ * @memory: a pointer to the allocated memory
+ * @kq_size: the number of used items
+ * @kq_allocated: the number of allocated items
+ *
+ * Represents a pool of (struct kevent) objects.
+ */
 typedef struct {
   struct kevent *memory;
   gsize kq_size;
