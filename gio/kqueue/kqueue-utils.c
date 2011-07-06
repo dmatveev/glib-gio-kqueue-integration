@@ -23,6 +23,8 @@
 #include <sys/event.h>
 #include <string.h>
 #include <glib.h>
+#include <unistd.h>
+#include <errno.h>
 #include "kqueue-utils.h"
 
 #define KEVENTS_EXTEND_COUNT 10
@@ -113,4 +115,59 @@ kevents_free (kevents *kv)
 
   g_free (kv->memory);
   memset (kv, 0, sizeof (kevents));
+}
+
+
+#define SAFE_GENERIC_OP(fcn, fd, data, size) \
+  while (size > 0) \
+    { \
+      gsize retval = fcn (fd, data, size); \
+      if (retval == -1) \
+        { \
+          if (errno == EINTR) \
+            continue; \
+          else \
+            return FALSE; \
+        } \
+      size -= retval; \
+      data += retval; \
+    } \
+  return TRUE;
+
+
+/**
+ * _ku_read:
+ * @fd: a file descriptor
+ * @data: the destination buffer
+ * @size: how many bytes to read
+ *
+ * A ready-to-EINTR version of read().
+ *
+ * This function expects to work with a blocking socket.
+ *
+ * Returns: %TRUE on success, %FALSE otherwise
+ **/
+gboolean
+_ku_read (int fd, gpointer data, gsize size)
+{
+  SAFE_GENERIC_OP (read, fd, data, size);
+}
+
+
+/**
+ * _ku_write:
+ * @fd: a file descriptor
+ * @data: the buffer to write
+ * @size: how many bytes to write
+ *
+ * A ready-to-EINTR version of write().
+ *
+ * This function expects to work with a blocking socket.
+ *
+ * Returns: %TRUE on success, %FALSE otherwise
+ **/
+gboolean
+_ku_write (int fd, gconstpointer data, gsize size)
+{
+  SAFE_GENERIC_OP (write, fd, data, size);
 }

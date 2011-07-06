@@ -23,7 +23,6 @@
 #include "config.h"
 #include <sys/event.h>
 #include <sys/time.h>
-#include <unistd.h>
 #include <errno.h>
 #include <glib.h>
 
@@ -204,7 +203,7 @@ _kqueue_thread_func (void *arg)
     if (received.ident == fd)
       {
         char c;
-        if (read (fd, &c, 1) == -1)
+        if (!_ku_read (fd, &c, 1))
           {
             KT_W ("Failed to read command, error %d", errno);
             continue;
@@ -220,7 +219,7 @@ _kqueue_thread_func (void *arg)
         kn.fd = received.ident;
         kn.flags = received.fflags;
 
-        if (write (fd, &kn, sizeof (struct kqueue_notification)) == -1)
+        if (!_ku_write (fd, &kn, sizeof (struct kqueue_notification)))
           KT_W ("Failed to write a kqueue notification, error %d", errno);
       }
   }
