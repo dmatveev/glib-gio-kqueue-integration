@@ -42,4 +42,8 @@ void kevents_extend_sz (kevents *kv, gsize n_new);
 void kevents_reduce    (kevents *kv);
 void kevents_free      (kevents *kv);
 
+
+gboolean _ku_read  (int fd, gpointer data, gsize size);
+gboolean _ku_write (int fd, gconstpointer data, gsize size);
+
 #endif /* __KQUEUE_UTILS_H */
