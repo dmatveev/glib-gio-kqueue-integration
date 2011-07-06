@@ -24,6 +24,7 @@
 #include <sys/event.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <errno.h>
 #include <glib.h>
 
 #include "kqueue-thread.h"
@@ -33,10 +34,10 @@
 static gboolean kt_debug_enabled = TRUE;
 #define KT_W if (kt_debug_enabled) g_warning
 
-static GSList *g_pick_up_fds = NULL;
+static GQueue pick_up_fds_queue = G_QUEUE_INIT;
 G_GNUC_INTERNAL G_LOCK_DEFINE (pick_up_lock);
 
-static GSList *g_remove_fds = NULL;
+static GSList *remove_fds_list = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (remove_lock);
 
 
@@ -46,130 +47,133 @@ const uint32_t KQUEUE_VNODE_FLAGS =
   NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | NOTE_RENAME;
 
 /* TODO: Probably it would be better to pass it as a thread param? */
-extern int g_kqueue;
+extern int kqueue_descriptor;
 
 
 /**
- * Pick up new file descriptors for monitoring.
+ * _kqueue_thread_collect_fds:
+ * @events: a #kevents - the list of events to monitor. Will be extended
+ *     with new items.
  *
- * This function will pick up file descriptors from a global list
- * for monitoring. The list will be freed then.
+ * Picks up new file descriptors for monitoring from a global queue.
  *
  * To add new items to the list, use _kqueue_thread_push_fd().
- *
- * @param A list of events to monitor. Will be extended with
- *        new items.
- */
+ **/
 static void
 _kqueue_thread_collect_fds (kevents *events)
 {
   g_assert (events != NULL);
+  gint length = 0;
 
   G_LOCK (pick_up_lock);
-  if (g_pick_up_fds)
+  if ((length = g_queue_get_length (&pick_up_fds_queue)) != 0)
     {
-      GSList *head = g_pick_up_fds;
-      guint count = g_slist_length (g_pick_up_fds);
-      kevents_extend_sz (events, count);
-      while (head)
-      {
-        struct kevent *pevent = &events->memory[events->kq_size++];
-        EV_SET (pevent,
-                GPOINTER_TO_INT (head->data),
-                EVFILT_VNODE,
-                EV_ADD | EV_ENABLE | EV_ONESHOT,
-                KQUEUE_VNODE_FLAGS,
-                0,
-                0);
-        head = head->next;
-      }
-      g_slist_free (g_pick_up_fds);
-      g_pick_up_fds = NULL;
+      gpointer fdp = NULL;
+      kevents_extend_sz (events, length);
+
+      while ((fdp = g_queue_pop_head (&pick_up_fds_queue)) != NULL)
+        {
+          struct kevent *pevent = &events->memory[events->kq_size++];
+          EV_SET (pevent,
+                  GPOINTER_TO_INT (fdp),
+                  EVFILT_VNODE,
+                  EV_ADD | EV_ENABLE | EV_ONESHOT,
+                  KQUEUE_VNODE_FLAGS,
+                  0,
+                  0);
+        }
     }
   G_UNLOCK (pick_up_lock);
 }
 
 
 /**
- * Remove file descriptors from monitoring.
+ * _kqueue_thread_cleanup_fds:
+ * @events: a #kevents -- list of events to monitor. Cancelled
+ *     subscriptions will be removed from it, and its size
+ *     probably will be reduced.
+ *
+ * Removes file descriptors from monitoring.
  *
  * This function will pick up file descriptors from a global list
  * to cancel monitoring on them. The list will be freed then.
  *
  * To add new items to the list, use _kqueue_thread_remove_fd().
- *
- * @param A list of events to monitor. Cancelled subscriptions will be
- *        removed from it, and its size probably will be reduced.
- */
+ **/
 static void
 _kqueue_thread_cleanup_fds (kevents *events)
 {
   g_assert (events != NULL);
 
   G_LOCK (remove_lock);
-  if (g_remove_fds)
+  if (remove_fds_list)
     {
       size_t oldsize = events->kq_size;
-      size_t newsize = oldsize - g_slist_length (g_remove_fds);
       int i, j;
-
-      if (newsize < 1)
-          newsize = 1;
 
       for (i = 1, j = 1; i < oldsize; i++)
         {
           int fd = events->memory[i].ident;
-          GSList *elem = g_slist_find (g_remove_fds, GINT_TO_POINTER (fd));
+          GSList *elem = g_slist_find (remove_fds_list, GINT_TO_POINTER (fd));
           if (elem == NULL)
             {
               if (j != i)
-                  events->memory[j++] = events->memory[i];
+                events->memory[j++] = events->memory[i];
             }
-          else
-              close (fd);
+          else if (close (fd) == -1)
+            KT_W ("Failed to close fd %d, error %d", fd, errno);
         }
       events->kq_size = j;
       kevents_reduce (events);
-      g_slist_free (g_remove_fds);
-      g_remove_fds = NULL;
+      g_slist_free (remove_fds_list);
+      remove_fds_list = NULL;
     }
   G_UNLOCK (remove_lock);
 }
 
 
 /**
- * The core kqueue monitoring routine.
+ * _kqueue_thread_func:
+ * @arg: a pointer to int -- control file descriptor.
  *
  * The thread communicates with the outside world through a so-called
  * command file descriptor. The thread reads control commands from it
  * and writes the notifications into it.
  *
  * Control commands are single-byte characters:
+ * <itemizedlist>
+ * <listitem>
  *   'A' - pick up new file descriptors to monitor
+ * </listitem>
+ * <listitem>
  *   'R' - remove some descriptors from monitoring.
- * For details, @see _kqueue_thread_collect_fds() and
+ * </listitem>
+ * </itemizedlist>
+ *
+ * For details, see _kqueue_thread_collect_fds() and
  * _kqueue_thread_cleanup_fds().
  *
  * Notifications, that thread writes into the command file descriptor,
- * are represented with \struct kqueue_notification objects.
+ * are represented with #kqueue_notification objects.
  *
- * @param A pointer to int, the command file descriptor.
- * @returns NULL.
- */
+ * Returns: %NULL
+ **/
 void*
 _kqueue_thread_func (void *arg)
 {
   int fd;
   kevents waiting;
+
+  g_assert (arg != NULL);
   kevents_init_sz (&waiting, 1);
 
   fd = *(int *) arg;
 
-  if (g_kqueue == -1)
-  {
-    KT_W ("fatal: kqueue is not initialized!\n");
-    return NULL;
-  }
+  if (kqueue_descriptor == -1)
+    {
+      KT_W ("fatal: kqueue is not initialized!\n");
+      return NULL;
+    }
 
   EV_SET (&waiting.memory[0],
           fd,
@@ -188,21 +192,27 @@ _kqueue_thread_func (void *arg)
      * high filesystem activity on each. */
      
     struct kevent received;
-    int ret = kevent (g_kqueue, waiting.memory, waiting.kq_size, &received, 1, NULL);
+    KT_W ("Wathing for %d items", waiting.kq_size);
+    int ret = kevent (kqueue_descriptor, waiting.memory, waiting.kq_size, &received, 1, NULL);
 
-    if (ret == -1) {
-      KT_W ("kevent failed\n");
-      continue;
-    }
+    if (ret == -1)
+      {
+        KT_W ("kevent failed");
+        continue;
+      }
 
     if (received.ident == fd)
       {
         char c;
-        read (fd, &c, 1);
+        if (read (fd, &c, 1) == -1)
+          {
+            KT_W ("Failed to read command, error %d", errno);
+            continue;
+          }
         if (c == 'A')
-            _kqueue_thread_collect_fds (&waiting);
+          _kqueue_thread_collect_fds (&waiting);
         else if (c == 'R')
-            _kqueue_thread_cleanup_fds (&waiting);
+          _kqueue_thread_cleanup_fds (&waiting);
       }
     else if (!(received.fflags & EV_ERROR))
       {
@@ -210,7 +220,8 @@ _kqueue_thread_func (void *arg)
         kn.fd = received.ident;
         kn.flags = received.fflags;
 
-        write (fd, &kn, sizeof (struct kqueue_notification));
+        if (write (fd, &kn, sizeof (struct kqueue_notification)) == -1)
+          KT_W ("Failed to write a kqueue notification, error %d", errno);
       }
   }
   kevents_free (&waiting);
@@ -219,37 +230,39 @@ _kqueue_thread_func (void *arg)
 
 
 /**
- * Put a new file descriptor into the pick up list for monitroing.
+ * _kqueue_thread_push_fd:
+ * @fd: a file descriptor
+ *
+ * Puts a new file descriptor into the pick up list for monitroing.
  *
  * The kqueue thread will not start monitoring on it immediately, it
  * should be bumped via its command file descriptor manually.
- * @see kqueue_thread() and _kqueue_thread_collect_fds() for details.
- *
- * @param A file descriptor to put.
- */
+ * See kqueue_thread() and _kqueue_thread_collect_fds() for details.
+ **/
 void
 _kqueue_thread_push_fd (int fd)
 {
   G_LOCK (pick_up_lock);
-  g_pick_up_fds = g_slist_prepend (g_pick_up_fds, GINT_TO_POINTER (fd));
+  g_queue_push_tail (&pick_up_fds_queue, GINT_TO_POINTER (fd));
   G_UNLOCK (pick_up_lock);
 }
 
 
 /**
- * Put a new file descriptor into the remove list to cancel monitoring
+ * _kqueue_thread_remove_fd:
+ * @fd: a file descriptor
+ *
+ * Puts a new file descriptor into the remove list to cancel monitoring
  * on it.
  *
  * The kqueue thread will not stop monitoring on it immediately, it
  * should be bumped via its command file descriptor manually.
- * @see kqueue_thread() and _kqueue_thread_collect_fds() for details.
- *
- * @param A file descriptor to remove.
- */
+ * See kqueue_thread() and _kqueue_thread_collect_fds() for details.
+ **/
 void
 _kqueue_thread_remove_fd (int fd)
 {
   G_LOCK (remove_lock);
-  g_remove_fds = g_slist_prepend (g_remove_fds, GINT_TO_POINTER (fd));
+  remove_fds_list = g_slist_prepend (remove_fds_list, GINT_TO_POINTER (fd));
   G_UNLOCK (remove_lock);
 }
