@@ -1621,8 +1621,7 @@ dnl ****************************
 kqueue_support=no
 AC_CHECK_HEADERS([sys/event.h],
 [
-	kqueue_support=yes
-	AC_CHECK_FUNCS(kqueue kevent)
+	AC_CHECK_FUNCS(kqueue kevent, [kqueue_support=yes])
 ])
 
 AM_CONDITIONAL(HAVE_KQUEUE, [test "$kqueue_support" = "yes"])

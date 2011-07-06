@@ -29,12 +29,13 @@
 
 
 /**
- * Initialize a kevents object.
+ * kevents_init_sz:
+ * @kv: a #kevents
+ * @n_initial: the initial preallocated memory size. If it is less than
+ *      %KEVENTS_EXTEND_COUNT, this value will be used instead.
  *
- * @param a pointer to kevents object.
- * @param the initial preallocated memory size. If it is less than
- *        KEVENTS_EXTEND_COUNT, this value will be used instead.
- */
+ * Initializes a #kevents object.
+ **/
 void
 kevents_init_sz (kevents *kv, gsize n_initial)
 {
@@ -51,11 +52,12 @@ kevents_init_sz (kevents *kv, gsize n_initial)
 
 
 /**
- * Extend the allocated memory, if needed.
+ * kevents_extend_sz:
+ * @kv: a #kevents
+ * @n_new: the number of new objects to be added
  *
- * @param a pointer to kevents object.
- * @param a number of new objects to be added.
- */
+ * Extends the allocated memory, if needed.
+ **/
 void
 kevents_extend_sz (kevents *kv, gsize n_new)
 {
@@ -70,13 +72,14 @@ kevents_extend_sz (kevents *kv, gsize n_new)
 
 
 /**
- * Reduce the allocated heap size, if needed.
+ * kevents_reduce:
+ * @kv: a #kevents
+ *
+ * Reduces the allocated heap size, if needed.
  *
  * If the allocated heap size is >= 3*used
- * and 2*used >= KEVENTS_EXTEND_COUNT, reduce it to 2*used.
- *
- * @param a pointer to kevents object.
- */
+ * and 2*used >= %KEVENTS_EXTEND_COUNT, reduce it to 2*used.
+ **/
 void
 kevents_reduce (kevents *kv)
 {
@@ -98,10 +101,11 @@ kevents_reduce (kevents *kv)
 
 
 /**
- * Reset the kevents object and free all the associated memory.
+ * kevents_free:
+ * @kv: a #kevents
  *
- * @param a pointer to kevents object.
- */
+ * Resets the kevents object and frees all the associated memory.
+ **/
 void
 kevents_free (kevents *kv)
 {

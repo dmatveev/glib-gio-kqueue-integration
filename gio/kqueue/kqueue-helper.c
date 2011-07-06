@@ -29,6 +29,7 @@
 #include <gio/gfile.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <pthread.h>
 #include "kqueue-helper.h"
 #include "kqueue-thread.h"
@@ -39,67 +40,64 @@ static gboolean kh_debug_enabled = TRUE;
 
 G_GNUC_INTERNAL G_LOCK_DEFINE (kqueue_lock);
 
-static GHashTable *g_sub_hash = NULL;
+static GHashTable *subs_hash_table = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (hash_lock);
 
-int g_kqueue = -1;
-static int g_sockpair[] = {-1, -1};
-static pthread_t g_kqueue_thread;
+int kqueue_descriptor = -1;
+static int kqueue_socket_pair[] = {-1, -1};
+static pthread_t kqueue_thread;
 
 
 void _kh_file_appeared_cb (kqueue_sub *sub);
 
 /**
- * Translate kqueue filter flags into GIO event flags.
+ * convert_kqueue_events_to_gio:
+ * @flags: a set of kqueue filter flags
  *
- * @param a set of kqueue filter flags.
- * @returns a set of GIO flags.
- */
+ * Translates kqueue filter flags into GIO event flags.
+ *
+ * Returns: a set of GIO flags (see #GFileMonitorEvent)
+ **/
 static GFileMonitorEvent
 convert_kqueue_events_to_gio (uint32_t flags)
 {
-  static struct {
-    uint32_t kqueue_code;
-    GFileMonitorEvent gio_code;
-  } translations[] = {
-    {NOTE_DELETE, G_FILE_MONITOR_EVENT_DELETED},
-    {NOTE_ATTRIB, G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED},
-    {NOTE_WRITE,  G_FILE_MONITOR_EVENT_CHANGED},
-    {NOTE_EXTEND, G_FILE_MONITOR_EVENT_CHANGED},
-    {NOTE_RENAME, G_FILE_MONITOR_EVENT_MOVED}
-  };
+  GFileMonitorEvent result = 0;
+
   /* TODO: The following notifications should be emulated, if possible:
    *   G_FILE_MONITOR_EVENT_PRE_UNMOUNT
    *   G_FILE_MONITOR_EVENT_UNMOUNTED */
-  
-  GFileMonitorEvent result = 0;
-  int i;
-
-  for (i = 0; i < sizeof (translations) / sizeof (translations[0]); i++)
-      if (flags & translations[i].kqueue_code)
-        result |= translations[i].gio_code;
+  if (flags & NOTE_DELETE)
+    result |= G_FILE_MONITOR_EVENT_DELETED;
+  if (flags & NOTE_ATTRIB)
+    result |= G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED;
+  if (flags & (NOTE_WRITE | NOTE_EXTEND))
+    result |= G_FILE_MONITOR_EVENT_CHANGED;
+  if (flags & NOTE_RENAME)
+    result |= G_FILE_MONITOR_EVENT_MOVED;
 
   return result;
 }
 
 
 /**
- * Process notifications, coming from the kqueue thread.
+ * process_kqueue_notifications:
+ * @gioc: unused.
+ * @cond: unused.
+ * @data: unused.
+ *
+ * Processes notifications, coming from the kqueue thread.
  *
  * Reads notifications from the command file descriptor, emits the
  * "changed" event on the appropriate monitor.
  *
  * A typical GIO Channel callback function.
  *
- * @param unused.
- * @param unused.
- * @param unused.
- * @returns TRUE.
- */
+ * Returns: %TRUE
+ **/
 static gboolean
-process_kqueue_notifications (GIOChannel  *gioc,
-                              GIOCondition cond,
-                              gpointer     data)
+process_kqueue_notifications (GIOChannel   *gioc,
+                              GIOCondition  cond,
+                              gpointer      data)
 {
   struct kqueue_notification n;
   kqueue_sub *sub = NULL;
@@ -108,24 +106,28 @@ process_kqueue_notifications (GIOChannel  *gioc,
   GFile *other = NULL;
   GFileMonitorEvent mask = 0;
   
-  g_assert (g_sockpair[0] != NULL);
-  read (g_sockpair[0], &n, sizeof (struct kqueue_notification));
+  g_assert (kqueue_socket_pair[0] != -1);
+  if (read (kqueue_socket_pair[0], &n, sizeof (struct kqueue_notification)) == -1)
+    {
+      KH_W ("Failed to read a kqueue notification, error %d", errno);
+      return TRUE;
+    }
 
-  sub = (kqueue_sub *) g_hash_table_lookup (g_sub_hash, GINT_TO_POINTER (n.fd));
+  sub = (kqueue_sub *) g_hash_table_lookup (subs_hash_table, GINT_TO_POINTER (n.fd));
   g_assert (sub != NULL);
 
-  monitor = G_FILE_MONITOR(sub->user_data);
+  monitor = G_FILE_MONITOR (sub->user_data);
   g_assert (monitor != NULL);
 
   child = g_file_new_for_path (sub->filename);
   other = NULL; /* No pair moves, always NULL */
 
   if (n.flags & (NOTE_DELETE | NOTE_REVOKE))
-  {
-    _km_add_missing (sub);
-    _kh_cancel_sub (sub);
-  }
-  mask  = convert_kqueue_events_to_gio (n.flags);
+    {
+      _km_add_missing (sub);
+      _kh_cancel_sub (sub);
+    }
+  mask = convert_kqueue_events_to_gio (n.flags);
 
   g_file_monitor_emit_event (monitor, child, other, mask);
   return TRUE;
@@ -133,84 +135,83 @@ process_kqueue_notifications (GIOChannel  *gioc,
 
 
 /**
- * Kqueue backend initialization.
+ * _kh_startup_impl:
+ * @unused: unused
  *
- * @returns TRUE on success, FALSE otherwise.
- */
-gboolean
-_kh_startup (void)
+ * Kqueue backend startup code. Should be called only once.
+ *
+ * Returns: %TRUE on success, %FALSE otherwise.
+ **/
+static gpointer
+_kh_startup_impl (gpointer unused)
 {
-  static gboolean initialized = FALSE;
-  static gboolean result = FALSE;
+  GIOChannel *channel = NULL;
+  gboolean result = FALSE;
 
-  GIOChannel *channel;
-
-  if (initialized == TRUE)
-    return result;
-
-  G_LOCK (kqueue_lock);
-
-  if (initialized == TRUE)
-    {
-      /* it was a double-checked locking */
-      G_UNLOCK (kqueue_lock);
-      return result;
-    }
-
-  g_kqueue = kqueue();
-  result = (-1 != g_kqueue);
+  kqueue_descriptor = kqueue ();
+  result = (kqueue_descriptor != -1);
   if (!result)
     {
-      G_UNLOCK (kqueue_lock);
       KH_W ("Failed to initialize kqueue\n!");
-      return FALSE;
+      return GINT_TO_POINTER (FALSE);
     }
 
-  result = (0 == socketpair(AF_UNIX, SOCK_STREAM, 0, g_sockpair));
-  if (!result)
+  result = socketpair (AF_UNIX, SOCK_STREAM, 0, kqueue_socket_pair);
+  if (result != 0)
     {
-      G_UNLOCK (kqueue_lock);
       KH_W ("Failed to create socket pair\n!");
-      return FALSE;
+      return GINT_TO_POINTER (FALSE) ;
     }
 
-  result = (0 == pthread_create (&g_kqueue_thread,
-                                 NULL,
-                                 _kqueue_thread_func,
-                                 &g_sockpair[1]));
-  if (!result)
+  result = pthread_create (&kqueue_thread,
+                           NULL,
+                           _kqueue_thread_func,
+                           &kqueue_socket_pair[1]);
+  if (result != 0)
     {
-      G_UNLOCK (kqueue_lock);
       KH_W ("Failed to run kqueue thread\n!");
-      return FALSE;
+      return GINT_TO_POINTER (FALSE);
     }
 
   _km_init (_kh_file_appeared_cb);
 
-  channel = g_io_channel_unix_new (g_sockpair[0]);
+  channel = g_io_channel_unix_new (kqueue_socket_pair[0]);
   g_io_add_watch (channel, G_IO_IN, process_kqueue_notifications, NULL);
 
-  g_sub_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
+  subs_hash_table = g_hash_table_new (g_direct_hash, g_direct_equal);
 
   KH_W ("started gio kqueue backend\n");
-  initialized = TRUE;
-
-  G_UNLOCK (kqueue_lock);
-
-  return TRUE;
+  return GINT_TO_POINTER (TRUE);
 }
 
 
 /**
- * Start watching a subscription.
+ * _kh_startup:
+ * Kqueue backend initialization.
  *
- * @param a subscription to monitor.
- * @returns TRUE on success, FALSE otherwise.
- */
+ * Returns: %TRUE on success, %FALSE otherwise.
+ **/
+gboolean
+_kh_startup (void)
+{
+  static GOnce init_once = G_ONCE_INIT;
+  g_once (&init_once, _kh_startup_impl, NULL);
+  return GPOINTER_TO_INT (init_once.retval);
+}
+
+
+/**
+ * _kh_start_watching:
+ * @sub: a #kqueue_sub
+ *
+ * Starts watching on a subscription.
+ *
+ * Returns: %TRUE on success, %FALSE otherwise.
+ **/
 gboolean
 _kh_start_watching (kqueue_sub *sub)
 {
-  g_assert (g_sockpair[0] != -1);
+  g_assert (kqueue_socket_pair[0] != -1);
   g_assert (sub != NULL);
   g_assert (sub->filename != NULL);
 
@@ -219,33 +220,36 @@ _kh_start_watching (kqueue_sub *sub)
 
   if (sub->fd == -1)
     {
-      KH_W ("failed to open file %s\n", sub->filename);
+      KH_W ("failed to open file %s (error %d)", sub->filename, errno);
       return FALSE;
     }
 
   G_LOCK (hash_lock);
-  g_hash_table_insert (g_sub_hash, GINT_TO_POINTER(sub->fd), sub);
+  g_hash_table_insert (subs_hash_table, GINT_TO_POINTER (sub->fd), sub);
   G_UNLOCK (hash_lock);
 
   _kqueue_thread_push_fd (sub->fd);
   
   /* Bump the kqueue thread. It will pick up a new sub entry to monitor */
-  write(g_sockpair[0], "A", 1);
+  if (write (kqueue_socket_pair[0], "A", 1) == -1)
+    KH_W ("Failed to bump the kqueue thread (add fd, error %d)", errno);
   return TRUE;
 }
 
 
 /**
- * Add a subscription for monitoring.
+ * _kh_add_sub:
+ * @sub: a #kqueue_sub
+ *
+ * Adds a subscription for monitoring.
  *
  * This funciton tries to start watching a subscription with
  * _kh_start_watching(). On failure, i.e. when a file does not exist yet,
  * the subscription will be added to a list of missing files to continue
  * watching when the file will appear.
  *
- * @param a subscription to monitor.
- * @returns TRUE.
- */
+ * Returns: %TRUE
+ **/
 gboolean
 _kh_add_sub (kqueue_sub *sub)
 {
@@ -259,20 +263,22 @@ _kh_add_sub (kqueue_sub *sub)
 
 
 /**
- * Stop monitoring a subscription.
+ * _kh_cancel_sub:
+ * @sub a #kqueue_sub
  *
- * @param a subscription.
- * @returns TRUE.
- */
+ * Stops monitoring on a subscription.
+ *
+ * Returns: %TRUE
+ **/
 gboolean
 _kh_cancel_sub (kqueue_sub *sub)
 {
   gboolean missing = FALSE;
-  g_assert (g_sockpair[0] != -1);
+  g_assert (kqueue_socket_pair[0] != -1);
   g_assert (sub != NULL);
 
   G_LOCK (hash_lock);
-  missing = !g_hash_table_remove (g_sub_hash, GINT_TO_POINTER(sub->fd));
+  missing = !g_hash_table_remove (subs_hash_table, GINT_TO_POINTER (sub->fd));
   G_UNLOCK (hash_lock);
 
   if (missing)
@@ -288,7 +294,8 @@ _kh_cancel_sub (kqueue_sub *sub)
       _kqueue_thread_remove_fd (sub->fd);
 
       /* Bump the kqueue thread. It will pick up a new sub entry to remove*/
-      write(g_sockpair[0], "R", 1);
+      if (write (kqueue_socket_pair[0], "R", 1) == -1)
+        KH_W ("Failed to bump the kqueue thread (remove fd, error %d)", errno);
     }
 
   return TRUE;
@@ -296,24 +303,24 @@ _kh_cancel_sub (kqueue_sub *sub)
 
 
 /**
+ * _kh_file_appeared_cb:
+ * @sub: a #kqueue_sub
+ *
  * A callback function for kqueue-missing subsystem.
  *
  * Signals that a missing file has finally appeared in the filesystem.
- * Emits G_FILE_MONITOR_EVENT_CREATED.
- *
- * @param a subscription.
- */
+ * Emits %G_FILE_MONITOR_EVENT_CREATED.
+ **/
 void
 _kh_file_appeared_cb (kqueue_sub *sub)
 {
-  GFileMonitorEvent eflags;
   GFile* child;
 
   g_assert (sub != NULL);
   g_assert (sub->filename);
 
   if (!g_file_test (sub->filename, G_FILE_TEST_EXISTS))
-      return;
+    return;
 
   child = g_file_new_for_path (sub->filename);
 
