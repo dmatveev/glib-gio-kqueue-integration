@@ -29,21 +29,23 @@ static gboolean is_debug_enabled = FALSE;
 
 
 /**
- * Create a new subscription object.
+ * _kh_sub_new:
+ * @filename: a file path to monitor (will be copied)
+ * @pair_moves: pair moves flag. Refer to #GFileMonitorFlags documentation.
+ * @user_data: user-supplied poiner.
  *
- * @param file path to monitor (will be copied).
- * @param pair moves flag. Refer to \enum GFileMonitorFlags documentation.
- * @param user-supplied poiner.
- * @returns a new subscription object.
- */
+ * Creates a new subscription object.
+ *
+ * Returns: a pointer to a created subscription object.
+ **/
 kqueue_sub*
 _kh_sub_new (const gchar *filename,
              gboolean     pair_moves,
              gpointer     user_data)
 {
-  kqueue_sub *sub = NULL;
+  kqueue_sub *sub = g_slice_new (kqueue_sub);
+  g_assert (sub != NULL);
   
-  sub = g_new0 (kqueue_sub, 1);
   sub->filename = g_strdup (filename);
   sub->pair_moves = pair_moves;
   sub->user_data = user_data;
@@ -56,15 +58,14 @@ _kh_sub_new (const gchar *filename,
 
 
 /**
- * Free a subscription object.
+ * _kh_sub_free:
+ * @sub: a #kqueue_sub
  *
- * The object itself and all its associated memory will be freed.
- *
- * @param a subscription object.
- */
+ * Frees a subscription object and all its associated memory.
+ **/
 void
 _kh_sub_free (kqueue_sub *sub)
 {
   g_free (sub->filename);
-  g_free (sub);
+  g_slice_free (kqueue_sub, sub);
 }

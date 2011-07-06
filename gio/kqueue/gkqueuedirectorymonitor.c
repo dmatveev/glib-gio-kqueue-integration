@@ -46,12 +46,11 @@ static void
 g_kqueue_directory_monitor_finalize (GObject *object)
 {
   GKqueueDirectoryMonitor *kqueue_monitor = G_KQUEUE_DIRECTORY_MONITOR (object);
-  kqueue_sub *sub = kqueue_monitor->sub;
   
-  if (sub)
+  if (kqueue_monitor->sub)
     {
-      _kh_cancel_sub (sub);
-      _kh_sub_free (sub);
+      _kh_cancel_sub (kqueue_monitor->sub);
+      _kh_sub_free (kqueue_monitor->sub);
       kqueue_monitor->sub = NULL;
     }
 
@@ -79,7 +78,7 @@ g_kqueue_directory_monitor_constructor (GType                 type,
 
   kqueue_monitor = G_KQUEUE_DIRECTORY_MONITOR (obj);
 
-  ret_kh_startup = _kh_startup();
+  ret_kh_startup = _kh_startup ();
   g_assert (ret_kh_startup);
 
   /* Pair moves notifications are unavailable for now, because kqueue does not
@@ -104,7 +103,7 @@ g_kqueue_directory_monitor_constructor (GType                 type,
 static gboolean
 g_kqueue_directory_monitor_is_supported (void)
 {
-  return _kh_startup();
+  return _kh_startup ();
 }
 
 static void
@@ -131,15 +130,16 @@ static gboolean
 g_kqueue_directory_monitor_cancel (GFileMonitor *monitor)
 {
   GKqueueDirectoryMonitor *kqueue_monitor = G_KQUEUE_DIRECTORY_MONITOR (monitor);
-  kqueue_sub *sub = kqueue_monitor->sub;
 
-  if (sub)
+  if (kqueue_monitor->sub)
     {
-      _kh_cancel_sub (sub);
-      _kh_sub_free (sub);
+      _kh_cancel_sub (kqueue_monitor->sub);
+      _kh_sub_free (kqueue_monitor->sub);
       kqueue_monitor->sub = NULL;
     }
 
   if (G_FILE_MONITOR_CLASS (g_kqueue_directory_monitor_parent_class)->cancel)
     (*G_FILE_MONITOR_CLASS (g_kqueue_directory_monitor_parent_class)->cancel) (monitor);
+
+  return TRUE;
 }

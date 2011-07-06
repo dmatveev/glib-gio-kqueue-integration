@@ -23,10 +23,18 @@
 #ifndef __KQUEUE_SUB_H
 #define __KQUEUE_SUB_H
 
+/**
+ * kqueue_sub:
+ * @filename: a name of the file to monitor
+ * @user_data: the pointer to user data
+ * @pair_moves: unused (currently not implemented)
+ * @fd: the associated file descriptor (used by kqueue)
+ *
+ * Represents a subscription on a file or directory.
+ */
 typedef struct
 {
   gchar*   filename;
-  gboolean cancelled;
   gpointer user_data;
   gboolean pair_moves;
   int      fd;
