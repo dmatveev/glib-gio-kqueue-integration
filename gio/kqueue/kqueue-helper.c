@@ -36,7 +36,7 @@
 #include "kqueue-thread.h"
 #include "kqueue-missing.h"
 
-static gboolean kh_debug_enabled = TRUE;
+static gboolean kh_debug_enabled = FALSE;
 #define KH_W if (kh_debug_enabled) g_warning
 
 G_GNUC_INTERNAL G_LOCK_DEFINE (kqueue_lock);
