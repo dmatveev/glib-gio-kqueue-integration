@@ -31,13 +31,13 @@
 
 static gboolean km_scan_missing (gpointer user_data);
 
-static gboolean km_debug_enabled = TRUE;
+static gboolean km_debug_enabled = FALSE;
 #define KM_W if (km_debug_enabled) g_warning
 
 static GSList *missing_subs_list = NULL;
 G_GNUC_INTERNAL G_LOCK_DEFINE (missing_lock);
 
-static gboolean scan_missing_running = FALSE;
+static volatile gboolean scan_missing_running = FALSE;
 static on_create_cb file_appeared_callback;
 
 

@@ -30,7 +30,7 @@
 #include "kqueue-sub.h"
 #include "kqueue-utils.h"
 
-static gboolean kt_debug_enabled = TRUE;
+static gboolean kt_debug_enabled = FALSE;
 #define KT_W if (kt_debug_enabled) g_warning
 
 static GQueue pick_up_fds_queue = G_QUEUE_INIT;
