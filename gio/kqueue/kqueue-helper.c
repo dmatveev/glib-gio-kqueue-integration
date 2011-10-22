@@ -29,12 +29,15 @@
 #include <gio/gfile.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
 #include <errno.h>
 #include <pthread.h>
 #include "kqueue-helper.h"
 #include "kqueue-utils.h"
 #include "kqueue-thread.h"
 #include "kqueue-missing.h"
+
+#include "gkqueuedirectorymonitor.h"
 
 static gboolean kh_debug_enabled = FALSE;
 #define KH_W if (kh_debug_enabled) g_warning
@@ -79,6 +82,212 @@ convert_kqueue_events_to_gio (uint32_t flags)
   return result;
 }
 
+typedef struct {
+  kqueue_sub *sub;
+  GFileMonitor *monitor;  
+} handle_ctx;
+
+/**
+ * TODO 
+ *
+ * @param[in] udata  A pointer to user data (#handle_context).
+ * @param[in] path   File name of a new file.
+ * @param[in] inode  Inode number of a new file.
+ **/
+static void
+handle_created (void *udata, const char *path, ino_t inode)
+{
+  handle_ctx *ctx = NULL;
+  GFile *file = NULL;
+  gchar *fpath = NULL;
+
+  (void) inode;
+  ctx = (handle_ctx *) udata;
+  g_assert (udata != NULL);
+  g_assert (ctx->sub != NULL);
+  g_assert (ctx->monitor != NULL);
+
+  fpath = _ku_path_concat (ctx->sub->filename, path);
+  if (fpath == NULL)
+    {
+      KH_W ("Failed to allocate a string for a new event");
+      return;
+    }
+
+  file = g_file_new_for_path (fpath);
+  g_file_monitor_emit_event (ctx->monitor,
+                             file,
+                             NULL,
+                             G_FILE_MONITOR_EVENT_CREATED);
+  g_free (fpath);
+  g_object_unref (file);
+}
+
+/**
+ * TODO
+ *
+ * @param[in] udata  A pointer to user data (#handle_context).
+ * @param[in] path   File name of the removed file.
+ * @param[in] inode  Inode number of the removed file.
+ **/
+static void
+handle_deleted (void *udata, const char *path, ino_t inode)
+{
+  handle_ctx *ctx = NULL;
+  GFile *file = NULL;
+  gchar *fpath = NULL;
+
+  (void) inode;
+  ctx = (handle_ctx *) udata;
+  g_assert (udata != NULL);
+  g_assert (ctx->sub != NULL);
+  g_assert (ctx->monitor != NULL);
+
+  fpath = _ku_path_concat (ctx->sub->filename, path);
+  if (fpath == NULL)
+    {
+      KH_W ("Failed to allocate a string for a new event");
+      return;
+    }
+
+  file = g_file_new_for_path (fpath);
+  g_file_monitor_emit_event (ctx->monitor,
+                             file,
+                             NULL,
+                             G_FILE_MONITOR_EVENT_DELETED);
+  g_free (fpath);
+  g_object_unref (file);
+}
+
+/**
+ * TODO
+ *
+ * @param[in] udata       A pointer to user data (#handle_context).
+ * @param[in] from_path   File name of the source file.
+ * @param[in] from_inode  Inode number of the source file.
+ * @param[in] to_path     File name of the replaced file.
+ * @param[in] to_inode    Inode number of the replaced file.
+**/
+static void
+handle_moved (void       *udata,
+              const char *from_path,
+              ino_t       from_inode,
+              const char *to_path,
+              ino_t       to_inode)
+{
+  handle_ctx *ctx = NULL;
+  GFile *file = NULL;
+  GFile *other = NULL;
+  gchar *path = NULL;
+  gchar *npath = NULL;
+
+  (void) from_inode;
+  (void) to_inode;
+  ctx = (handle_ctx *) udata;
+  g_assert (udata != NULL);
+  g_assert (ctx->sub != NULL);
+  g_assert (ctx->monitor != NULL);
+
+
+  path = _ku_path_concat (ctx->sub->filename, from_path);
+  npath = _ku_path_concat (ctx->sub->filename, to_path);
+  if (path == NULL || npath == NULL)
+    {
+      KH_W ("Failed to allocate strings for event");
+      return;
+    }
+
+  file = g_file_new_for_path (path);
+  other = g_file_new_for_path (npath);
+
+  g_file_monitor_emit_event (ctx->monitor,
+                             file,
+                             other,
+                             G_FILE_MONITOR_EVENT_MOVED);
+
+  g_free (path);
+  g_free (npath);
+
+  g_object_unref (file);
+  g_object_unref (other);
+}
+
+
+/**
+ * TODO
+ *
+ * @param[in] udata  A pointer to user data (#handle_context).
+ * @param[in] path   File name of the overwritten file.
+ * @param[in] inode  Inode number of the overwritten file.
+ **/
+static void
+handle_overwritten (void *udata, const char *path, ino_t inode)
+{
+  handle_ctx *ctx = NULL;
+  GFile *file = NULL;
+  gchar *fpath = NULL;
+
+  (void) inode;
+  ctx = (handle_ctx *) udata;
+  g_assert (udata != NULL);
+  g_assert (ctx->sub != NULL);
+  g_assert (ctx->monitor != NULL);
+
+  fpath = _ku_path_concat (ctx->sub->filename, path);
+  if (fpath == NULL)
+    {
+      KH_W ("Failed to allocate a string for a new event");
+      return;
+    }
+
+  file = g_file_new_for_path (fpath);
+  g_file_monitor_emit_event (ctx->monitor,
+                             file,
+                             NULL,
+                             G_FILE_MONITOR_EVENT_DELETED);
+  g_file_monitor_emit_event (ctx->monitor,
+                             file,
+                             NULL,
+                             G_FILE_MONITOR_EVENT_CREATED);
+
+  g_free (fpath);
+  g_object_unref (file);
+}
+
+static const traverse_cbs cbs = {
+  handle_created,
+  handle_deleted,
+  handle_moved,
+  handle_overwritten,
+  handle_moved,
+  NULL, /* many added */
+  NULL, /* many removed */
+  NULL, /* names updated */
+};
+
+
+static void
+produce_dir_notifications (kqueue_sub   *sub,
+                           GFileMonitor *monitor)
+{
+  dep_list *was;
+  handle_ctx ctx;
+
+  g_assert (sub != NULL);
+  g_assert (monitor != NULL);
+
+  memset (&ctx, 0, sizeof (handle_ctx));
+  ctx.sub = sub;
+  ctx.monitor = monitor;
+
+  was = sub->deps;
+  sub->deps = dl_listing (sub->filename);
+ 
+  dl_calculate (was, sub->deps, &cbs, &ctx);
+
+  dl_free (was);
+}
+
 
 /**
  * process_kqueue_notifications:
@@ -103,8 +312,6 @@ process_kqueue_notifications (GIOChannel   *gioc,
   struct kqueue_notification n;
   kqueue_sub *sub = NULL;
   GFileMonitor *monitor = NULL;
-  GFile *child = NULL;
-  GFile *other = NULL;
   GFileMonitorEvent mask = 0;
   
   g_assert (kqueue_socket_pair[0] != -1);
@@ -120,17 +327,32 @@ process_kqueue_notifications (GIOChannel   *gioc,
   monitor = G_FILE_MONITOR (sub->user_data);
   g_assert (monitor != NULL);
 
-  child = g_file_new_for_path (sub->filename);
-  other = NULL; /* No pair moves, always NULL */
-
   if (n.flags & (NOTE_DELETE | NOTE_REVOKE))
     {
+      if (sub->deps)
+        {
+          /* TODO Where to drop dependencies? */  
+          dl_free (sub->deps);
+          sub->deps = NULL;  
+        }  
       _km_add_missing (sub);
       _kh_cancel_sub (sub);
     }
-  mask = convert_kqueue_events_to_gio (n.flags);
 
-  g_file_monitor_emit_event (monitor, child, other, mask);
+  if (sub->is_dir && n.flags & (NOTE_WRITE | NOTE_EXTEND))
+    {
+      produce_dir_notifications (sub, monitor);  
+      n.flags &= ~(NOTE_WRITE | NOTE_EXTEND);
+    }
+
+  if (n.flags)
+    {
+      GFile *file = g_file_new_for_path (sub->filename);
+      mask = convert_kqueue_events_to_gio (n.flags);
+      g_file_monitor_emit_event (monitor, file, NULL, mask);
+      g_object_unref (file);
+    }
+
   return TRUE;
 }
 
@@ -216,6 +438,8 @@ _kh_start_watching (kqueue_sub *sub)
   g_assert (sub != NULL);
   g_assert (sub->filename != NULL);
 
+  int is_dir = 0;
+
   /* kqueue requires a file descriptor to monitor. Sad but true */
   sub->fd = open (sub->filename, O_RDONLY);
 
@@ -223,6 +447,21 @@ _kh_start_watching (kqueue_sub *sub)
     {
       KH_W ("failed to open file %s (error %d)", sub->filename, errno);
       return FALSE;
+    }
+
+  _ku_file_information (sub->fd, &sub->is_dir, NULL);
+  if (sub->is_dir)
+    {
+      /* I know, it is very bad to make such decisions in this way and here.
+       * We already do have an user_data at the #kqueue_sub, and it may point to
+       * GKqueueFileMonitor or GKqueueDirectoryMonitor. For a directory case,
+       * we need to scan in contents for the further diffs. Ideally this process
+       * should be delegated to the GKqueueDirectoryMonitor, but for now I will
+       * do it in a dirty way right here. */
+      if (sub->deps)
+        dl_free (sub->deps);
+
+      sub->deps = dl_listing (sub->filename);  
     }
 
   G_LOCK (hash_lock);

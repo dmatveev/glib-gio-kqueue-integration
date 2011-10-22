@@ -24,8 +24,14 @@
 #include <string.h>
 #include <glib.h>
 #include <unistd.h>
+#include <sys/stat.h> 
 #include <errno.h>
 #include "kqueue-utils.h"
+
+static gboolean ku_debug_enabled = FALSE;
+#define KU_W if (ku_debug_enabled) g_warning
+
+
 
 #define KEVENTS_EXTEND_COUNT 10
 
@@ -171,3 +177,67 @@ _ku_write (int fd, gconstpointer data, gsize size)
 {
   SAFE_GENERIC_OP (write, fd, data, size);
 }
+
+
+/**
+ * Get some file information by its file descriptor.
+ *
+ * @param[in]  fd      A file descriptor.
+ * @param[out] is_dir  A flag indicating directory.
+ * @param[out] inode   A file's inode number.
+ **/
+void
+_ku_file_information (int fd, int *is_dir, ino_t *inode)
+{
+  g_assert (fd != -1);
+  g_assert (is_dir != NULL);
+  g_assert (inode != NULL);
+
+  struct stat st;
+  memset (&st, 0, sizeof (struct stat));
+
+  if (fstat (fd, &st) == -1) {
+      KU_W ("fstat failed, assuming it is just a file");
+      return;
+  }
+
+  if (is_dir != NULL) {
+      *is_dir = ((st.st_mode & S_IFDIR) == S_IFDIR) ? 1 : 0;
+  }
+
+  if (inode != NULL) {
+      *inode = st.st_ino;
+  }
+}
+
+/**
+ * Create a file path using its name and a path to its directory.
+ *
+ * @param[in] dir  A path to a file directory. May end with a '/'.
+ * @param[in] file File name.
+ * @return A concatenated path. Should be freed with free().
+ **/
+gchar*
+_ku_path_concat (const gchar *dir, const gchar *file)
+{
+  int dir_len = strlen (dir);
+  int file_len = strlen (file);
+
+  char *path = g_malloc (dir_len + file_len + 2);
+  if (path == NULL)
+    {
+      KU_W ("Failed to allocate memory path for concatenation");
+      return NULL;
+    }
+
+  strcpy (path, dir);
+
+  if (dir[dir_len - 1] != '/') {
+      ++dir_len;
+      path[dir_len - 1] = '/';
+  }
+
+  strcpy (path + dir_len, file);
+  return path;
+}
+

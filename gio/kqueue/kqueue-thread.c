@@ -23,6 +23,7 @@
 #include "config.h"
 #include <sys/event.h>
 #include <sys/time.h>
+#include <unistd.h>
 #include <errno.h>
 #include <glib.h>
 
@@ -191,7 +192,7 @@ _kqueue_thread_func (void *arg)
      * high filesystem activity on each. */
      
     struct kevent received;
-    KT_W ("Wathing for %d items", waiting.kq_size);
+    KT_W ("Wathing for %zi items", waiting.kq_size);
     int ret = kevent (kqueue_descriptor, waiting.memory, waiting.kq_size, &received, 1, NULL);
 
     if (ret == -1)
