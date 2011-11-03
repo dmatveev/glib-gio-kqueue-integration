@@ -24,8 +24,8 @@
 
 #include "kqueue-sub.h"
 
-static gboolean is_debug_enabled = FALSE;
-#define KS_W if (is_debug_enabled) g_warning
+static gboolean ks_debug_enabled = FALSE;
+#define KS_W if (ks_debug_enabled) g_warning
 
 /**
  * _kh_sub_new:

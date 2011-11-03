@@ -488,8 +488,6 @@ dl_calculate (dep_list           *before,
               const traverse_cbs *cbs,
               void               *udata)
 {
-    assert (before != NULL);
-    assert (after != NULL);
     assert (cbs != NULL);
 
     int need_update = 0;

@@ -438,8 +438,6 @@ _kh_start_watching (kqueue_sub *sub)
   g_assert (sub != NULL);
   g_assert (sub->filename != NULL);
 
-  int is_dir = 0;
-
   /* kqueue requires a file descriptor to monitor. Sad but true */
   sub->fd = open (sub->filename, O_RDONLY);
 

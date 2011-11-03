@@ -190,8 +190,6 @@ void
 _ku_file_information (int fd, int *is_dir, ino_t *inode)
 {
   g_assert (fd != -1);
-  g_assert (is_dir != NULL);
-  g_assert (inode != NULL);
 
   struct stat st;
   memset (&st, 0, sizeof (struct stat));
