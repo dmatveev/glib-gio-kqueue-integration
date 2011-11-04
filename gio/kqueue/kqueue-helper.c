@@ -88,11 +88,13 @@ typedef struct {
 } handle_ctx;
 
 /**
- * TODO 
+ * handle_created: 
+ * @udata: a pointer to user data (#handle_context).
+ * @path: file name of a new file.
+ * @inode: inode number of a new file.
  *
- * @param[in] udata  A pointer to user data (#handle_context).
- * @param[in] path   File name of a new file.
- * @param[in] inode  Inode number of a new file.
+ * A callback function for the directory diff calculation routine,
+ * produces G_FILE_MONITOR_EVENT_CREATED event for a created file.
  **/
 static void
 handle_created (void *udata, const char *path, ino_t inode)
@@ -124,11 +126,13 @@ handle_created (void *udata, const char *path, ino_t inode)
 }
 
 /**
- * TODO
+ * handle_deleted:
+ * @udata: a pointer to user data (#handle_context).
+ * @path: file name of the removed file.
+ * @inode: inode number of the removed file.
  *
- * @param[in] udata  A pointer to user data (#handle_context).
- * @param[in] path   File name of the removed file.
- * @param[in] inode  Inode number of the removed file.
+ * A callback function for the directory diff calculation routine,
+ * produces G_FILE_MONITOR_EVENT_DELETED event for a deleted file.
  **/
 static void
 handle_deleted (void *udata, const char *path, ino_t inode)
@@ -160,14 +164,16 @@ handle_deleted (void *udata, const char *path, ino_t inode)
 }
 
 /**
- * TODO
+ * handle_moved:
+ * @udata: a pointer to user data (#handle_context).
+ * @from_path: file name of the source file.
+ * @from_inode: inode number of the source file.
+ * @to_path: file name of the replaced file.
+ * @to_inode: inode number of the replaced file.
  *
- * @param[in] udata       A pointer to user data (#handle_context).
- * @param[in] from_path   File name of the source file.
- * @param[in] from_inode  Inode number of the source file.
- * @param[in] to_path     File name of the replaced file.
- * @param[in] to_inode    Inode number of the replaced file.
-**/
+ * A callback function for the directory diff calculation routine,
+ * produces G_FILE_MONITOR_EVENT_MOVED event on a move.
+ **/
 static void
 handle_moved (void       *udata,
               const char *from_path,
@@ -214,11 +220,14 @@ handle_moved (void       *udata,
 
 
 /**
- * TODO
+ * handle_overwritten:
+ * @data: a pointer to user data (#handle_context).
+ * @path: file name of the overwritten file.
+ * @node: inode number of the overwritten file.
  *
- * @param[in] udata  A pointer to user data (#handle_context).
- * @param[in] path   File name of the overwritten file.
- * @param[in] inode  Inode number of the overwritten file.
+ * A callback function for the directory diff calculation routine,
+ * produces G_FILE_MONITOR_EVENT_DELETED/CREATED event pair when
+ * an overwrite occurs in the directory (see dep-list for details).
  **/
 static void
 handle_overwritten (void *udata, const char *path, ino_t inode)
@@ -331,7 +340,6 @@ process_kqueue_notifications (GIOChannel   *gioc,
     {
       if (sub->deps)
         {
-          /* TODO Where to drop dependencies? */  
           dl_free (sub->deps);
           sub->deps = NULL;  
         }  
