@@ -81,12 +81,11 @@ g_kqueue_directory_monitor_constructor (GType                 type,
   ret_kh_startup = _kh_startup ();
   g_assert (ret_kh_startup);
 
-  /* Pair moves notifications are unavailable for now, because kqueue does not
-   * provide us enough info and we cannot *gracefully* determine a new file
-   * path by a file descriptor.
-   */
+  kqueue_monitor->pair_moves = (G_LOCAL_DIRECTORY_MONITOR (obj)->flags & G_FILE_MONITOR_SEND_MOVED)
+                               ? TRUE : FALSE;
+
   sub = _kh_sub_new (G_LOCAL_DIRECTORY_MONITOR (obj)->dirname,
-                     FALSE,
+                     kqueue_monitor->pair_moves,
                      kqueue_monitor);
 
   /* FIXME: what to do about errors here? we can't return NULL or another

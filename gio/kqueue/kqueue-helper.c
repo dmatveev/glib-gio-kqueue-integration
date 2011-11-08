@@ -189,6 +189,7 @@ handle_moved (void       *udata,
 
   (void) from_inode;
   (void) to_inode;
+
   ctx = (handle_ctx *) udata;
   g_assert (udata != NULL);
   g_assert (ctx->sub != NULL);
@@ -206,10 +207,24 @@ handle_moved (void       *udata,
   file = g_file_new_for_path (path);
   other = g_file_new_for_path (npath);
 
-  g_file_monitor_emit_event (ctx->monitor,
-                             file,
-                             other,
-                             G_FILE_MONITOR_EVENT_MOVED);
+  if (ctx->sub->pair_moves)
+    {
+      g_file_monitor_emit_event (ctx->monitor,
+                                 file,
+                                 other,
+                                 G_FILE_MONITOR_EVENT_MOVED);
+    }
+  else
+    {
+      g_file_monitor_emit_event (ctx->monitor,
+                                 file,
+                                 NULL,
+                                 G_FILE_MONITOR_EVENT_DELETED);
+      g_file_monitor_emit_event (ctx->monitor,
+                                 other,
+                                 NULL,
+                                 G_FILE_MONITOR_EVENT_CREATED);
+    }
 
   g_free (path);
   g_free (npath);
