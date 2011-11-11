@@ -23,6 +23,8 @@
 #ifndef __KQUEUE_SUB_H
 #define __KQUEUE_SUB_H
 
+#include "dep-list.h"
+
 /**
  * kqueue_sub:
  * @filename: a name of the file to monitor
@@ -34,10 +36,12 @@
  */
 typedef struct
 {
-  gchar*   filename;
-  gpointer user_data;
-  gboolean pair_moves;
-  int      fd;
+  gchar*    filename;
+  gpointer  user_data;
+  gboolean  pair_moves;
+  int       fd;
+  dep_list* deps;
+  int       is_dir;
 } kqueue_sub;
 
 kqueue_sub* _kh_sub_new  (const gchar* filename, gboolean pair_moves, gpointer user_data);
