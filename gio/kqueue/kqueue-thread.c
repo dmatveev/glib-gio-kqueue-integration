@@ -23,6 +23,7 @@
 #include "config.h"
 #include <sys/event.h>
 #include <sys/time.h>
+#include <unistd.h>
 #include <errno.h>
 #include <glib.h>
 
@@ -116,12 +117,15 @@ _kqueue_thread_cleanup_fds (kevents *events)
           GSList *elem = g_slist_find (remove_fds_list, GINT_TO_POINTER (fd));
           if (elem == NULL)
             {
-              if (j != i)
-                events->memory[j++] = events->memory[i];
+              if (i != j)
+                events->memory[j] = events->memory[i];
+              ++j;
             }
           else if (close (fd) == -1)
             KT_W ("Failed to close fd %d, error %d", fd, errno);
         }
+
+      KT_W ("FD Clean up complete, kq_size now %d\n", j);
       events->kq_size = j;
       kevents_reduce (events);
       g_slist_free (remove_fds_list);
@@ -191,8 +195,9 @@ _kqueue_thread_func (void *arg)
      * high filesystem activity on each. */
      
     struct kevent received;
-    KT_W ("Wathing for %d items", waiting.kq_size);
+    KT_W ("Watching for %zi items", waiting.kq_size);
     int ret = kevent (kqueue_descriptor, waiting.memory, waiting.kq_size, &received, 1, NULL);
+    KT_W ("Awoken.");
 
     if (ret == -1)
       {

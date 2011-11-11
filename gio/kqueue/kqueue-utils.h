@@ -23,6 +23,8 @@
 #ifndef __KQUEUE_UTILS_H
 #define __KQUEUE_UTILS_H
 
+#include <sys/types.h> /* ino_t */
+
 /**
  * kqueue_notification:
  * @memory: a pointer to the allocated memory
@@ -43,7 +45,13 @@ void kevents_reduce    (kevents *kv);
 void kevents_free      (kevents *kv);
 
 
-gboolean _ku_read  (int fd, gpointer data, gsize size);
-gboolean _ku_write (int fd, gconstpointer data, gsize size);
+gboolean _ku_read             (int fd, gpointer data, gsize size);
+gboolean _ku_write            (int fd, gconstpointer data, gsize size);
+
+void     _ku_file_information (int fd, int *is_dir, ino_t *inode);
+
+gchar*    _ku_path_concat     (const gchar *dir, const gchar *file);
+
+
 
 #endif /* __KQUEUE_UTILS_H */

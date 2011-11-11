@@ -24,9 +24,8 @@
 
 #include "kqueue-sub.h"
 
-static gboolean is_debug_enabled = FALSE;
-#define KS_W if (is_debug_enabled) g_warning
-
+static gboolean ks_debug_enabled = FALSE;
+#define KS_W if (ks_debug_enabled) g_warning
 
 /**
  * _kh_sub_new:
@@ -39,9 +38,9 @@ static gboolean is_debug_enabled = FALSE;
  * Returns: a pointer to a created subscription object.
  **/
 kqueue_sub*
-_kh_sub_new (const gchar *filename,
-             gboolean     pair_moves,
-             gpointer     user_data)
+_kh_sub_new (const gchar    *filename,
+             gboolean        pair_moves,
+             gpointer        user_data)
 {
   kqueue_sub *sub = g_slice_new (kqueue_sub);
   g_assert (sub != NULL);
@@ -50,6 +49,9 @@ _kh_sub_new (const gchar *filename,
   sub->pair_moves = pair_moves;
   sub->user_data = user_data;
   sub->fd = -1;
+  sub->deps = NULL;
+  /* I think that having such flag in the subscription is not good */
+  sub->is_dir = 0;
 
   KS_W ("new subscription for %s being setup\n", sub->filename);
   
@@ -66,6 +68,12 @@ _kh_sub_new (const gchar *filename,
 void
 _kh_sub_free (kqueue_sub *sub)
 {
+  if (sub->deps)
+    {
+      dl_free (sub->deps);
+      sub->deps = NULL;
+    }
+
   g_free (sub->filename);
   g_slice_free (kqueue_sub, sub);
 }
