@@ -345,8 +345,16 @@ process_kqueue_notifications (GIOChannel   *gioc,
       return TRUE;
     }
 
+  G_LOCK (hash_lock);
   sub = (kqueue_sub *) g_hash_table_lookup (subs_hash_table, GINT_TO_POINTER (n.fd));
-  g_assert (sub != NULL);
+  G_UNLOCK (hash_lock);
+
+  if (sub == NULL)
+    {
+      KH_W ("Got a notification for a deleted or non-existing subscription %d",
+             n.fd);
+      return TRUE;
+    }
 
   monitor = G_FILE_MONITOR (sub->user_data);
   g_assert (monitor != NULL);
