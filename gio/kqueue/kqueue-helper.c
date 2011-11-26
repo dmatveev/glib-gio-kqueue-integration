@@ -57,27 +57,44 @@ void _kh_file_appeared_cb (kqueue_sub *sub);
 /**
  * convert_kqueue_events_to_gio:
  * @flags: a set of kqueue filter flags
+ * @done: a pointer to #gboolean indicating that the
+ *      conversion has been done (out)
  *
  * Translates kqueue filter flags into GIO event flags.
  *
  * Returns: a set of GIO flags (see #GFileMonitorEvent)
  **/
 static GFileMonitorEvent
-convert_kqueue_events_to_gio (uint32_t flags)
+convert_kqueue_events_to_gio (uint32_t flags, gboolean *done)
 {
   GFileMonitorEvent result = 0;
+
+  g_assert (done != NULL);
+  *done = FALSE;
 
   /* TODO: The following notifications should be emulated, if possible:
    *   G_FILE_MONITOR_EVENT_PRE_UNMOUNT
    *   G_FILE_MONITOR_EVENT_UNMOUNTED */
   if (flags & NOTE_DELETE)
-    result |= G_FILE_MONITOR_EVENT_DELETED;
+    {    
+      result |= G_FILE_MONITOR_EVENT_DELETED;
+      *done = TRUE;
+    }
   if (flags & NOTE_ATTRIB)
-    result |= G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED;
+    {
+      result |= G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED;
+      *done = TRUE;
+    }
   if (flags & (NOTE_WRITE | NOTE_EXTEND))
-    result |= G_FILE_MONITOR_EVENT_CHANGED;
+    {
+      result |= G_FILE_MONITOR_EVENT_CHANGED;
+      *done = TRUE;
+    }
   if (flags & NOTE_RENAME)
-    result |= G_FILE_MONITOR_EVENT_MOVED;
+    {
+      result |= G_FILE_MONITOR_EVENT_MOVED;
+      *done = TRUE;
+    }
 
   return result;
 }
@@ -378,10 +395,14 @@ process_kqueue_notifications (GIOChannel   *gioc,
 
   if (n.flags)
     {
-      GFile *file = g_file_new_for_path (sub->filename);
-      mask = convert_kqueue_events_to_gio (n.flags);
-      g_file_monitor_emit_event (monitor, file, NULL, mask);
-      g_object_unref (file);
+      gboolean done = FALSE;
+      mask = convert_kqueue_events_to_gio (n.flags, &done);
+      if (done == TRUE)
+        {
+          GFile *file = g_file_new_for_path (sub->filename);
+          g_file_monitor_emit_event (monitor, file, NULL, mask);
+          g_object_unref (file);
+        }
     }
 
   return TRUE;
