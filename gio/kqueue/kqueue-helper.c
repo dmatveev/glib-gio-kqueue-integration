@@ -62,41 +62,45 @@ void _kh_file_appeared_cb (kqueue_sub *sub);
  *
  * Translates kqueue filter flags into GIO event flags.
  *
- * Returns: a set of GIO flags (see #GFileMonitorEvent)
+ * Returns: a #GFileMonitorEvent
  **/
 static GFileMonitorEvent
 convert_kqueue_events_to_gio (uint32_t flags, gboolean *done)
 {
-  GFileMonitorEvent result = 0;
-
   g_assert (done != NULL);
   *done = FALSE;
 
   /* TODO: The following notifications should be emulated, if possible:
-   *   G_FILE_MONITOR_EVENT_PRE_UNMOUNT
-   *   G_FILE_MONITOR_EVENT_UNMOUNTED */
+   * - G_FILE_MONITOR_EVENT_PRE_UNMOUNT
+   */
   if (flags & NOTE_DELETE)
     {    
-      result |= G_FILE_MONITOR_EVENT_DELETED;
       *done = TRUE;
+      return G_FILE_MONITOR_EVENT_DELETED;
     }
   if (flags & NOTE_ATTRIB)
     {
-      result |= G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED;
       *done = TRUE;
+      return G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED;
     }
   if (flags & (NOTE_WRITE | NOTE_EXTEND))
     {
-      result |= G_FILE_MONITOR_EVENT_CHANGED;
       *done = TRUE;
+      return G_FILE_MONITOR_EVENT_CHANGED;
     }
   if (flags & NOTE_RENAME)
     {
-      result |= G_FILE_MONITOR_EVENT_MOVED;
       *done = TRUE;
+      return G_FILE_MONITOR_EVENT_MOVED;
+    }
+  if (flags & NOTE_REVOKE)
+    {
+      *done = TRUE;
+      return G_FILE_MONITOR_EVENT_UNMOUNTED;
     }
 
-  return result;
+  /* done is FALSE */
+  return 0;
 }
 
 typedef struct {
@@ -384,7 +388,15 @@ process_kqueue_notifications (GIOChannel   *gioc,
           sub->deps = NULL;  
         }  
       _km_add_missing (sub);
-      _kh_cancel_sub (sub);
+
+      if (!(n.flags & NOTE_REVOKE))
+        {
+          /* Note that NOTE_REVOKE is issued by the kqueue thread
+           * on EV_ERROR kevent. In this case, a file descriptor is
+           * already closed from the kqueue thread, no need to close
+           * it manually */ 
+          _kh_cancel_sub (sub);
+        }
     }
 
   if (sub->is_dir && n.flags & (NOTE_WRITE | NOTE_EXTEND))
