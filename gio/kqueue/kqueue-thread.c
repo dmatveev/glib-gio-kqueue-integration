@@ -136,6 +136,33 @@ _kqueue_thread_cleanup_fds (kevents *events)
 
 
 /**
+ * _kqueue_thread_drop_fd:
+ * @events: a #kevents -- list of events to monitor. Cancelled
+ *     subscriptions will be removed from it, and its size
+ *     probably will be reduced.
+ *
+ * Removes a concrete file descriptor from monitoring.
+ **/
+static void
+_kqueue_thread_drop_fd (kevents *events, int fd)
+{
+  g_assert (events != NULL);
+
+  int i;
+  for (i = 1; i < events->kq_size; i++)
+    {
+      if (events->memory[i].ident == fd)
+        {
+          if (close (fd) == -1)
+            KT_W ("Failed to close fd %d, error %d", fd, errno);
+
+          events->memory[i] = events->memory[--events->kq_size];
+          return;
+        }
+    } 
+}
+
+/**
  * _kqueue_thread_func:
  * @arg: a pointer to int -- control file descriptor.
  *
@@ -218,11 +245,18 @@ _kqueue_thread_func (void *arg)
         else if (c == 'R')
           _kqueue_thread_cleanup_fds (&waiting);
       }
-    else if (!(received.fflags & EV_ERROR))
+    else 
       {
         struct kqueue_notification kn;
         kn.fd = received.ident;
-        kn.flags = received.fflags;
+
+        if (received.flags & EV_ERROR)
+          {
+            kn.flags = NOTE_REVOKE;
+            _kqueue_thread_drop_fd (&waiting, received.ident);
+          }
+        else
+          kn.flags = (received.fflags & ~NOTE_REVOKE);
 
         if (!_ku_write (fd, &kn, sizeof (struct kqueue_notification)))
           KT_W ("Failed to write a kqueue notification, error %d", errno);
