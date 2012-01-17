@@ -19,9 +19,9 @@ libkqueue_la_SOURCES = \
        kqueue-missing.h \
        kqueue-utils.c \
        kqueue-utils.h \
-	   dep-list.c \
+       dep-list.c \
        dep-list.h \
-   	   $(NULL)
+       $(NULL)
 
 libkqueue_la_CFLAGS = \
        -DG_LOG_DOMAIN=\"GLib-GIO\" \
