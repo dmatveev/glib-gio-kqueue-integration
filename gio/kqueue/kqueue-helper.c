@@ -25,7 +25,6 @@
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <gio/glocalfile.h>
-#include <gio/gfilemonitor.h>
 #include <gio/gfile.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -36,6 +35,7 @@
 #include "kqueue-utils.h"
 #include "kqueue-thread.h"
 #include "kqueue-missing.h"
+#include "kqueue-exclusions.h"
 
 #include "gkqueuedirectorymonitor.h"
 
@@ -311,9 +311,8 @@ static const traverse_cbs cbs = {
 };
 
 
-static void
-produce_dir_notifications (kqueue_sub   *sub,
-                           GFileMonitor *monitor)
+void
+_kh_dir_diff (kqueue_sub *sub, GFileMonitor *monitor)
 {
   dep_list *was;
   handle_ctx ctx;
@@ -401,7 +400,7 @@ process_kqueue_notifications (GIOChannel   *gioc,
 
   if (sub->is_dir && n.flags & (NOTE_WRITE | NOTE_EXTEND))
     {
-      produce_dir_notifications (sub, monitor);  
+      _kh_dir_diff (sub, monitor);  
       n.flags &= ~(NOTE_WRITE | NOTE_EXTEND);
     }
 
@@ -461,6 +460,7 @@ _kh_startup_impl (gpointer unused)
     }
 
   _km_init (_kh_file_appeared_cb);
+  _ke_rebuild ();
 
   channel = g_io_channel_unix_new (kqueue_socket_pair[0]);
   g_io_add_watch (channel, G_IO_IN, process_kqueue_notifications, NULL);

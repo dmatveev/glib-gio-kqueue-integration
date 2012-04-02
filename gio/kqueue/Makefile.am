@@ -19,6 +19,8 @@ libkqueue_la_SOURCES = \
        kqueue-missing.h \
        kqueue-utils.c \
        kqueue-utils.h \
+       kqueue-exclusions.c \
+       kqueue-exclusions.h \
        dep-list.c \
        dep-list.h \
        $(NULL)
