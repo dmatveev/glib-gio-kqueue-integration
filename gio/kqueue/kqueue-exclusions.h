@@ -1,5 +1,5 @@
 /*******************************************************************************
-  Copyright (c) 2011, 2012 Dmitry Matveev <me@dmitrymatveev.co.uk>
+  Copyright (c) 2012 Dmitry Matveev <me@dmitrymatveev.co.uk>
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -20,18 +20,10 @@
   THE SOFTWARE.
 *******************************************************************************/
 
-#ifndef __KQUEUE_HELPER_H
-#define __KQUEUE_HELPER_H
+#ifndef __KQUEUE_EXCLUSIONS_H
+#define __KQUEUE_EXCLUSIONS_H
 
-#include "kqueue-sub.h"
-#include <gio/gfilemonitor.h>
+void     _ke_rebuild      ();
+gboolean _ke_is_excluded  (const char *full_path);
 
-gboolean _kh_startup        (void);
-gboolean _kh_add_sub        (kqueue_sub *sub);
-gboolean _kh_cancel_sub     (kqueue_sub *sub);
-
-gboolean _kh_start_watching (kqueue_sub *sub);
-
-void     _kh_dir_diff       (kqueue_sub *sub, GFileMonitor *monitor);
-
-#endif /* __KQUEUE_HELPER_H */
+#endif /* __KQUEUE_EXCLUDES_H */

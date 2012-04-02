@@ -24,12 +24,20 @@
 
 #include "gkqueuedirectorymonitor.h"
 #include "kqueue-helper.h"
+#include "kqueue-exclusions.h"
+#include <gio/gpollfilemonitor.h>
+#include <gio/gfile.h>
 #include <gio/giomodule.h>
+
 
 struct _GKqueueDirectoryMonitor
 {
   GLocalDirectoryMonitor parent_instance;
   kqueue_sub *sub;
+
+  GFileMonitor *fallback;
+  GFile *fbfile;
+ 
   gboolean pair_moves;
 };
 
@@ -42,6 +50,29 @@ G_DEFINE_TYPE_WITH_CODE (GKqueueDirectoryMonitor, g_kqueue_directory_monitor, G_
                "kqueue",
                20))
 
+
+static void
+_fallback_callback (GFileMonitor      *unused,
+                    GFile             *first,
+                    GFile             *second,
+                    GFileMonitorEvent  event,
+                    gpointer           udata)
+{
+  GKqueueDirectoryMonitor *kq_mon = G_KQUEUE_DIRECTORY_MONITOR (udata); 
+  GFileMonitor *mon = G_FILE_MONITOR (kq_mon);
+  g_assert (kq_mon != NULL);
+  g_assert (mon != NULL);
+  (void) unused;
+
+  if (event == G_FILE_MONITOR_EVENT_CHANGED)
+  {
+    _kh_dir_diff (kq_mon->sub, mon);
+  }
+  else
+    g_file_monitor_emit_event (mon, first, second, event);
+}
+
+
 static void
 g_kqueue_directory_monitor_finalize (GObject *object)
 {
@@ -53,6 +84,12 @@ g_kqueue_directory_monitor_finalize (GObject *object)
       _kh_sub_free (kqueue_monitor->sub);
       kqueue_monitor->sub = NULL;
     }
+
+  if (kqueue_monitor->fallback)
+    g_object_unref (kqueue_monitor->fallback);
+
+  if (kqueue_monitor->fbfile)
+    g_object_unref (kqueue_monitor->fbfile);
 
   if (G_OBJECT_CLASS (g_kqueue_directory_monitor_parent_class)->finalize)
     (*G_OBJECT_CLASS (g_kqueue_directory_monitor_parent_class)->finalize) (object);
@@ -69,6 +106,7 @@ g_kqueue_directory_monitor_constructor (GType                 type,
   GKqueueDirectoryMonitor *kqueue_monitor;
   kqueue_sub *sub = NULL;
   gboolean ret_kh_startup;
+  const gchar *path = NULL;
 
   klass = G_KQUEUE_DIRECTORY_MONITOR_CLASS (g_type_class_peek (G_TYPE_KQUEUE_DIRECTORY_MONITOR));
   parent_class = G_OBJECT_CLASS (g_type_class_peek_parent (klass));
@@ -84,7 +122,16 @@ g_kqueue_directory_monitor_constructor (GType                 type,
   kqueue_monitor->pair_moves = (G_LOCAL_DIRECTORY_MONITOR (obj)->flags & G_FILE_MONITOR_SEND_MOVED)
                                ? TRUE : FALSE;
 
-  sub = _kh_sub_new (G_LOCAL_DIRECTORY_MONITOR (obj)->dirname,
+  kqueue_monitor->sub = NULL;
+  kqueue_monitor->fallback = NULL;
+  kqueue_monitor->fbfile = NULL;
+
+  path = G_LOCAL_DIRECTORY_MONITOR (obj)->dirname;
+
+  /* For a directory monitor, create a subscription object anyway.
+   * It will be used for directory diff calculation routines. */
+
+  sub = _kh_sub_new (path,
                      kqueue_monitor->pair_moves,
                      kqueue_monitor);
 
@@ -92,9 +139,20 @@ g_kqueue_directory_monitor_constructor (GType                 type,
    * kind of error and an assertion is probably too hard (same issue as in
    * the inotify backend) */
   g_assert (sub != NULL);
-
-  _kh_add_sub (sub);
   kqueue_monitor->sub = sub;
+
+  if (!_ke_is_excluded (path))
+    _kh_add_sub (sub);
+  else
+    {
+      GFile *file = g_file_new_for_path (path);
+      kqueue_monitor->fbfile = file;
+      kqueue_monitor->fallback = _g_poll_file_monitor_new (file);
+      g_signal_connect (kqueue_monitor->fallback,
+                        "changed",
+                        G_CALLBACK (_fallback_callback),
+                        kqueue_monitor);
+    }
 
   return obj;
 }
@@ -136,6 +194,9 @@ g_kqueue_directory_monitor_cancel (GFileMonitor *monitor)
       _kh_sub_free (kqueue_monitor->sub);
       kqueue_monitor->sub = NULL;
     }
+  else if (kqueue_monitor->fallback)
+    g_file_monitor_cancel (kqueue_monitor->fallback);
+
 
   if (G_FILE_MONITOR_CLASS (g_kqueue_directory_monitor_parent_class)->cancel)
     (*G_FILE_MONITOR_CLASS (g_kqueue_directory_monitor_parent_class)->cancel) (monitor);
