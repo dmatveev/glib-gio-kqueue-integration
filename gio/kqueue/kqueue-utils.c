@@ -20,6 +20,7 @@
   THE SOFTWARE.
 *******************************************************************************/
 
+#include <sys/types.h>
 #include <sys/event.h>
 #include <string.h>
 #include <glib.h>

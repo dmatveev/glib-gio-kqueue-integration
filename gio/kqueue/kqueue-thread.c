@@ -21,6 +21,7 @@
 *******************************************************************************/
 
 #include "config.h"
+#include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -228,8 +229,11 @@ _kqueue_thread_func (void *arg)
 
     if (ret == -1)
       {
-        KT_W ("kevent failed");
-        continue;
+        KT_W ("kevent failed: %d", errno);
+        if (errno == EINTR)
+          continue;
+        else
+          return NULL;
       }
 
     if (received.ident == fd)
