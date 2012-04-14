@@ -24,7 +24,7 @@
 #include <glib.h>
 #include "kqueue-exclusions.h"
 
-static gboolean ke_debug_enabled = TRUE;
+static gboolean ke_debug_enabled = FALSE;
 #define KE_W if (ke_debug_enabled) g_warning
 
 static GSList *exclude_list = NULL;
